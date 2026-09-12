@@ -32,6 +32,7 @@
       "file-drop.js",
       "overlay.html",
       "feed.html",
+      "theme.css",
       "compose.html",
       "icon.png",
       "config.default.json",

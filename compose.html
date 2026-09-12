@@ -1,52 +1,41 @@
 <!doctype html>
 <html>
 <head><meta charset="utf-8">
+<link rel="stylesheet" href="theme.css">
 <style>
-  :root { --amber:#E9A23B; --bg:#161618; --card:#1e1e21; --line:#2c2c30; --txt:#e6e6e6; --dim:#8a8a90; }
-  html, body { margin:0; height:100%; background:var(--bg); color:var(--txt); font:13px/1.45 system-ui, Segoe UI, sans-serif; overflow:hidden; }
-  * { box-sizing:border-box; }
-  body.file-drag::after { content:'Drop files to attach'; position:fixed; inset:6px; z-index:100; display:grid; place-items:center; border:2px dashed var(--amber); border-radius:10px; background:rgba(20,20,22,.94); color:var(--amber); font-size:17px; pointer-events:none; }
-  #wrap { display:flex; flex-direction:column; height:100%; border:1px solid rgba(233,162,59,.55); border-radius:12px; overflow:hidden; }
-  #hd { display:flex; align-items:center; gap:8px; padding:9px 12px; border-bottom:1px solid var(--line); -webkit-app-region:drag; user-select:none; }
-  #hd .ring { width:12px; height:12px; border-radius:50%; border:2px solid var(--amber); background:rgba(233,162,59,.22); }
-  #hd .t { font-weight:600; font-size:12px; }
+  body { background: transparent; }
+  body.file-drag::after { content:'Drop files to attach'; position:fixed; inset:6px; z-index:100; display:grid; place-items:center; border:2px dashed var(--amber); border-radius:12px; background:rgba(15,15,17,.94); color:var(--amber-2); font-size:17px; font-weight:600; pointer-events:none; }
+  #wrap { display:flex; flex-direction:column; height:100%; border:1px solid rgba(233,162,59,.6); border-radius:14px; overflow:hidden;
+          background: radial-gradient(500px 220px at 20% -10%, rgba(233,162,59,.12), transparent 60%), var(--panel); box-shadow: 0 30px 80px rgba(0,0,0,.55); }
+  #hd { padding:9px 12px; }
+  #hd h1 { font-size:12.5px; }
   #hd .app { color:var(--dim); font-size:11px; }
-  #hd button { -webkit-app-region:no-drag; margin-left:auto; background:none; border:0; color:var(--dim); font-size:14px; cursor:pointer; padding:0 4px; }
-  #hd button:hover { color:#fff; }
+  #hd button { margin-left:auto; }
   #body { padding:10px 12px; display:flex; flex-direction:column; gap:8px; flex:1; min-height:0; }
-  input, textarea { width:100%; background:#0f0f11; border:1px solid var(--line); color:var(--txt); padding:7px 9px; border-radius:8px; font:inherit; outline:none; resize:none; }
-  input:focus, textarea:focus { border-color:var(--amber); }
+  input, textarea { resize:none; }
   #title { font-weight:600; }
-  #ctx { flex:1; min-height:70px; }
-  .lbl { font-size:11px; color:var(--dim); margin-bottom:-4px; }
+  #ctx { flex:1; min-height:70px; line-height:1.5; }
+  .lbl { font-size:10.5px; color:var(--dim); margin-bottom:-4px; letter-spacing:.04em; text-transform:uppercase; }
   #srcs { display:flex; flex-wrap:wrap; gap:5px; }
-  #srcs button { background:#0f0f11; border:1px solid var(--line); color:#ddd; padding:4px 9px; border-radius:7px; font:inherit; font-size:12px; cursor:pointer; }
-  #srcs button:hover { border-color:var(--amber); }
+  #srcs button { background:#121214; border:1px solid var(--line); color:#dcdce0; padding:4px 10px; border-radius:.55rem; font:inherit; font-size:12px; cursor:pointer; transition:border-color .15s, background .15s; }
+  #srcs button:hover { border-color:var(--amber); background:#17171a; }
   #att { display:flex; flex-wrap:wrap; gap:5px; max-height:76px; overflow:auto; flex-shrink:0; }
+  #att:empty { display:none; }
   #error { color:#f29b91; font-size:12px; max-height:44px; overflow:auto; }
   #error:empty { display:none; }
-  #att:empty { display:none; }
-  .chip { display:inline-flex; align-items:center; gap:6px; background:#0f0f11; border:1px solid var(--line); padding:3px 8px; border-radius:7px; font-size:12px; max-width:100%; }
-  .chip img { width:22px; height:22px; object-fit:cover; border-radius:4px; }
-  .chip span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:180px; }
-  .chip b { color:var(--dim); font-weight:400; font-size:11px; }
-  .chip .x { color:var(--dim); cursor:pointer; }
-  .chip .x:hover { color:#e06e6e; }
-  #ft { display:flex; align-items:center; gap:8px; padding:8px 12px; border-top:1px solid var(--line); }
+  .chip { cursor:default; }
+  .chip span { max-width:180px; }
+  #ft { display:flex; align-items:center; gap:8px; padding:8px 12px; border-top:1px solid var(--line); background:rgba(15,15,17,.5); }
   #ft .hint { color:var(--dim); font-size:11px; }
   #ft .sp { flex:1; }
-  #cancel { background:none; border:1px solid var(--line); color:#ddd; padding:6px 12px; border-radius:8px; font:inherit; cursor:pointer; }
-  #send { background:var(--amber); color:#1a1a1a; border:0; padding:6px 14px; border-radius:8px; font:inherit; font-weight:600; cursor:pointer; }
-  #send:disabled { opacity:.5; }
-  kbd { background:#0f0f11; border:1px solid var(--line); border-radius:4px; padding:0 4px; font:11px ui-monospace, Consolas, monospace; }
 </style></head>
 <body>
 <div id="wrap">
-  <div id="hd"><span class="ring"></span><span class="t">Create a task</span><span class="app" id="app"></span><button id="close" title="Esc">✕</button></div>
+  <div id="hd" class="win-hd"><span class="ring"></span><h1>Create a task</h1><span class="app" id="app"></span><button id="close" class="ghost" title="Esc">✕</button></div>
   <div id="body">
-    <input id="title" placeholder="What should the crew do?" />
+    <input id="title" class="input" placeholder="What should the crew do?" />
     <div class="lbl">Context</div>
-    <textarea id="ctx" placeholder="What the crew needs to know…"></textarea>
+    <textarea id="ctx" class="input" placeholder="What the crew needs to know…"></textarea>
     <div class="lbl">Drop files here, or add context from</div>
     <div id="srcs">
       <button data-k="file">📎 File</button>
@@ -60,7 +49,7 @@
     <div id="att"></div>
     <div id="error" role="alert"></div>
   </div>
-  <div id="ft"><span class="hint"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> or <kbd>⇧⇧</kbd> send · <kbd>Esc</kbd> cancel</span><span class="sp"></span><button id="cancel">Cancel</button><button id="send">Send to crew</button></div>
+  <div id="ft"><span class="hint"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> or <kbd>⇧⇧</kbd> send · <kbd>Esc</kbd> cancel</span><span class="sp"></span><button id="cancel" class="btn">Cancel</button><button id="send" class="btn-primary">Send to crew</button></div>
 </div>
 <script>
   const { ipcRenderer } = require('electron');
