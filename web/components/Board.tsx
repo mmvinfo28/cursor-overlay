@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import { useCopilotReadable, useCopilotAction } from "@copilotkit/react-core";
 import { createClient } from "@/lib/supabase/client";
 import { ago, TASK_SELECT, type Task, type Worker } from "@/lib/types";
 
@@ -56,6 +57,40 @@ export default function Board({ initialTasks, initialWorkers, user }: { initialT
 
   const cost = tasks.reduce((s, t) => s + (t.events || []).reduce((a, e) => a + Number(e.cost_usd || 0), 0), 0);
   const doneToday = tasks.filter((t) => t.status === "done" && Date.now() - new Date(t.updated_at).getTime() < 86400e3).length;
+
+  // --- CopilotKit: the sidebar sees exactly what the board sees ---
+  useCopilotReadable({
+    description: "Live Crewboard state: every task, its status, the worker on it, its deliverables, and spend so far.",
+    value: {
+      totalCostUsd: Number(cost.toFixed(4)),
+      doneToday,
+      workers: workers.map((w) => ({ name: w.name, kind: w.kind, status: w.status, capabilities: w.capabilities })),
+      tasks: tasks.map((t) => ({
+        id: t.id,
+        title: t.title,
+        status: t.status,
+        capability: t.capability,
+        worker: t.worker?.name ?? null,
+        capturedFrom: t.source_app,
+        deliverables: (t.deliverables || []).map((d) => ({ name: d.name, kind: d.kind, url: d.url })),
+      })),
+    },
+  });
+
+  // The copilot can unblock a needs-human task through the board's own answer path.
+  useCopilotAction({
+    name: "answerBlockedTask",
+    description: "Reply to a task whose status is needs-human, so its worker can continue.",
+    parameters: [
+      { name: "taskId", type: "string", description: "id of the needs-human task" },
+      { name: "text", type: "string", description: "the answer to give the worker" },
+    ],
+    handler: async ({ taskId, text }) => {
+      await answer(String(taskId), String(text));
+      return `answered ${taskId}`;
+    },
+  });
+
 
   return (
     <div className="flex flex-col gap-4">

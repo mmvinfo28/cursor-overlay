@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Viewer } from "@/lib/session";
+import Copilot from "@/components/Copilot";
 
 export default function Shell({ viewer, active, children }: { viewer: Viewer; active: "board" | "results"; children: React.ReactNode }) {
   const tab = (href: string, key: string, label: string) => (
@@ -19,7 +20,9 @@ export default function Shell({ viewer, active, children }: { viewer: Viewer; ac
           ? <a href="/auth/logout" className="text-xs text-dim hover:text-amber">sign out</a>
           : <form action="/supabase/signout" method="post"><button className="text-xs text-dim hover:text-amber" type="submit">sign out</button></form>}
       </header>
-      <main className="flex-1 p-5">{children}</main>
+      <main className="flex-1 p-5">
+        <Copilot>{children}</Copilot>
+      </main>
     </div>
   );
 }
