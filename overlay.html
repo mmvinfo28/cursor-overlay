@@ -175,6 +175,7 @@
     const pSig = document.getElementById('p-sig');
     const pTxt = document.getElementById('p-txt');
     let flashTimer = null;
+    ipcRenderer.on('field-hide', () => body.classList.remove('reader'));
     ipcRenderer.on('field', (_, f) => {
       body.classList.add('reader');
       pApp.textContent = f.app || '?';

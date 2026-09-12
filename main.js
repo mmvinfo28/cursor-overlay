@@ -6,7 +6,8 @@ const os = require('os');
 const path = require('path');
 
 const QUICK_RADIUS = 200; // DIP: a plain click (no drag) grabs a 400x400 box around it
-const READER = process.argv.includes('--reader'); // spawn the UIA field reader + show the live panel
+const READER = process.argv.includes('--reader'); // spawn the UIA field reader
+let showPanel = process.argv.includes('--panel');      // the live field-text panel is a debug surface: hidden unless asked
 
 // installed: user files live in %APPDATA%\Crewboard, helpers are unpacked next to the asar.
 // dev: everything sits in the repo folder, as before.
@@ -141,7 +142,7 @@ function onFieldLine(line) {
   try { f = JSON.parse(line); } catch { return log('uia parse fail', line.slice(0, 120)); }
   const { pass, signals } = localFilter(f.text || '');
   log('field', f.app, f.type, `${f.len}ch`, f.src, pass ? 'PASS' : 'silent', signals.join(','));
-  if (!win.isDestroyed()) win.webContents.send('field', { ...f, pass, signals });
+  if (showPanel && !win.isDestroyed()) win.webContents.send('field', { ...f, pass, signals });
 }
 
 function helperCmd(cmd) {
@@ -306,6 +307,8 @@ function createTray() {
     { label: 'Open Crewboard', click: () => toggleFeed(true) },
     { label: 'Results folder', click: () => { if (resultsSync) shell.openPath(resultsSync.dir); } },
     { type: 'separator' },
+    { label: 'Show field reader (debug)', type: 'checkbox', checked: showPanel, enabled: READER,
+      click: m => { showPanel = m.checked; if (!showPanel) win.webContents.send('field-hide'); } },
     { label: 'Start with Windows', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin,
       click: m => app.setLoginItemSettings({ openAtLogin: m.checked }) },
     { label: 'Quit', click: () => { app.quitting = true; app.quit(); } }
