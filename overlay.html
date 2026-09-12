@@ -13,6 +13,16 @@
     background:rgba(233,162,59,.08);
     animation:signal-pulse .7s ease-out both;
   }
+  #task-label {
+    position:fixed; z-index:2; box-sizing:border-box; padding:7px 11px;
+    border:1px solid rgba(233,162,59,.72); border-radius:999px;
+    background:rgba(24,24,24,.96); color:#f3c06f;
+    box-shadow:0 6px 20px rgba(0,0,0,.32); font:600 12px/1.2 system-ui, Segoe UI, sans-serif;
+    white-space:nowrap; pointer-events:none; opacity:0; transform:translateY(3px) scale(.92);
+    transition:opacity .18s ease, transform .28s cubic-bezier(.34,1.6,.64,1);
+  }
+  #task-label.on { opacity:1; transform:translateY(0) scale(1); }
+  #task-label.confirmed { border-color:rgba(110,224,138,.72); color:#6EE08A; }
   body.select #buddy {
     width:58px; height:58px; opacity:1;
     animation:pop .45s cubic-bezier(.36,.07,.19,.97) both, breathe 1.6s ease-in-out .45s infinite;
@@ -101,7 +111,7 @@
   #panel .txt:empty::before { content:'(no text read)'; color:#666; }
   #panel.flash { border-color:#E9A23B; }
 
-  body.hidden-ui #buddy, body.hidden-ui #dim, body.hidden-ui #sel, body.hidden-ui #toast, body.hidden-ui #panel { visibility:hidden; }
+  body.hidden-ui #buddy, body.hidden-ui #task-label, body.hidden-ui #dim, body.hidden-ui #sel, body.hidden-ui #toast, body.hidden-ui #panel { visibility:hidden; }
 </style></head>
 <body>
   <div id="dim"></div>
@@ -112,6 +122,7 @@
     <span class="corner bl"></span>
     <span class="corner br"></span>
   </div>
+  <div id="task-label">Create a task</div>
   <div id="toast"></div>
   <div id="panel">
     <div class="hd">
@@ -126,8 +137,15 @@
     const { ipcRenderer } = require('electron');
     const body = document.body;
     const buddy = document.getElementById('buddy');
+    const taskLabel = document.getElementById('task-label');
     const sel = document.getElementById('sel');
     const toast = document.getElementById('toast');
+
+    function hideTaskLabel() {
+      taskLabel.classList.remove('on', 'confirmed');
+      taskLabel.textContent = 'Create a task';
+      ipcRenderer.send('task-label-state', false);
+    }
 
     const STIFFNESS = 0.22, DAMPING = 0.68;
     let cursor = { x: -100, y: -100 };
@@ -141,6 +159,11 @@
       pos.x += vel.x; pos.y += vel.y;
       buddy.style.left = pos.x + 'px';
       buddy.style.top  = pos.y + 'px';
+      const labelWidth = taskLabel.offsetWidth;
+      const labelHeight = taskLabel.offsetHeight;
+      const labelLeft = pos.x + 24 + labelWidth <= innerWidth - 8 ? pos.x + 24 : pos.x - labelWidth - 24;
+      taskLabel.style.left = Math.max(8, Math.min(labelLeft, innerWidth - labelWidth - 8)) + 'px';
+      taskLabel.style.top = Math.max(8, Math.min(pos.y - labelHeight / 2, innerHeight - labelHeight - 8)) + 'px';
       requestAnimationFrame(tick);
     })();
 
@@ -148,7 +171,9 @@
     ipcRenderer.on('select-start', () => {
       clearTimeout(detectionDelay);
       clearTimeout(detectionVisible);
+      clearTimeout(taskLabelVisible);
       buddy.classList.remove('detected', 'hit');
+      hideTaskLabel();
       body.classList.add('select');
     });
     ipcRenderer.on('select-end', () => { body.classList.remove('select', 'dragging'); start = null; });
@@ -198,6 +223,8 @@
     let hitTimer = null;
     ipcRenderer.on('fired', () => {
       buddy.classList.remove('detected', 'hit');
+      clearTimeout(taskLabelVisible);
+      hideTaskLabel();
       void buddy.offsetWidth;
       buddy.classList.add('hit');
       clearTimeout(hitTimer);
@@ -215,13 +242,19 @@
     ipcRenderer.on('field-hide', () => body.classList.remove('reader'));
     let detectionDelay = null;
     let detectionVisible = null;
+    let taskLabelVisible = null;
     let detectionGeneration = 0;
-    ipcRenderer.on('signal', (_, { pass }) => {
+    let detectedText = '';
+    let confirmedText = null;
+    ipcRenderer.on('signal', (_, { pass, text = '' }) => {
       clearTimeout(detectionDelay);
       detectionGeneration++;
-      if (!pass) {
+      if (confirmedText !== null && text !== confirmedText) confirmedText = null;
+      if (!pass || text === confirmedText) {
         clearTimeout(detectionVisible);
+        clearTimeout(taskLabelVisible);
         buddy.classList.remove('detected');
+        hideTaskLabel();
         return;
       }
       const generation = detectionGeneration;
@@ -230,9 +263,30 @@
         buddy.classList.remove('detected');
         void buddy.offsetWidth;
         buddy.classList.add('detected');
+        detectedText = text;
+        taskLabel.textContent = 'Create a task';
+        taskLabel.classList.remove('confirmed');
+        taskLabel.classList.remove('on');
+        void taskLabel.offsetWidth;
+        taskLabel.classList.add('on');
+        ipcRenderer.send('task-label-state', true);
         clearTimeout(detectionVisible);
+        clearTimeout(taskLabelVisible);
         detectionVisible = setTimeout(() => buddy.classList.remove('detected'), 700);
+        taskLabelVisible = setTimeout(hideTaskLabel, 4000);
       }, 650);
+    });
+    ipcRenderer.on('task-label-confirmed', () => {
+      detectionGeneration++;
+      clearTimeout(detectionDelay);
+      clearTimeout(detectionVisible);
+      clearTimeout(taskLabelVisible);
+      confirmedText = detectedText;
+      buddy.classList.remove('detected');
+      taskLabel.textContent = 'Task selected';
+      taskLabel.classList.add('confirmed', 'on');
+      ipcRenderer.send('task-label-state', false);
+      taskLabelVisible = setTimeout(hideTaskLabel, 1200);
     });
     ipcRenderer.on('field', (_, f) => {
       body.classList.add('reader');
