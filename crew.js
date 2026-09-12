@@ -30,7 +30,7 @@ function create({ cfg, log, onToast, onProposal, onLateTitle, onSent, onUpdate }
   }
 
   async function askServer(text, app) {
-    const r = await fetch(`${api}/api/propose`, { method: 'POST', headers, body: JSON.stringify({ text, app }) });
+    const r = await fetch(`${api}/api/propose`, { method: 'POST', headers, body: JSON.stringify({ text, app }), signal: AbortSignal.timeout(15000) });
     if (!r.ok) throw new Error(`propose ${r.status}`);
     return r.json();
   }
@@ -52,6 +52,7 @@ function create({ cfg, log, onToast, onProposal, onLateTitle, onSent, onUpdate }
     const my = ++seq;
     timer = setTimeout(async () => {
       let out;
+      const started = Date.now();
       const proposer = cfg.proposer || 'server';          // server | claude | codex | gemini | local
       try {
         if (proposer === 'local') out = { propose: true, title: localTitle(text), local: true };
@@ -62,6 +63,7 @@ function create({ cfg, log, onToast, onProposal, onLateTitle, onSent, onUpdate }
         log('propose failed', proposer, e.message);
         if (cfg.localPropose !== false) out = { propose: true, title: localTitle(text), local: true };
       }
+      log('PROPOSE response', out && (out.provider || proposer), `${Date.now() - started}ms`, out && out.propose ? 'accepted' : 'declined', out && out.reason || '');
       if (!out || !out.propose) return;
       if (confirmed && confirmed === text) {                  // user already double-tapped on this text: update the composer
         confirmed = null;
@@ -72,6 +74,7 @@ function create({ cfg, log, onToast, onProposal, onLateTitle, onSent, onUpdate }
       if (my !== seq) return log('PROPOSE discarded (text changed)', out.title);
       proposal = { title: out.title, context: text, app: f.app, at: Date.now() };
       log('PROPOSE', out.local ? '(local)' : `(${out.provider || 'server'})`, out.title);
+      if (onProposal) onProposal(proposal);
       onToast({ text: `↯ ${out.title}\nDouble-tap Shift to send to the crew`, kind: 'proposal', ttl: PROPOSAL_TTL_MS });
     }, PROPOSE_DEBOUNCE_MS);
   }

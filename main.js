@@ -338,7 +338,7 @@ function createCompose() {
 let pendingTask = null;          // what the composer is editing: { app }
 function openCompose({ title, context, app, cropPng }) {
   composing = true;
-  pendingTask = { app };
+  pendingTask = { app, context };
   const c = screen.getCursorScreenPoint();
   const { workArea } = screen.getDisplayNearestPoint(c);
   const [w, h] = compose.getSize();
@@ -552,7 +552,7 @@ app.whenReady().then(() => {
     crew = crewmod.create({
       cfg, log, onToast: toastAtCursor,
       onProposal: ({ title }) => { taskLabelActive = true; if (!win.isDestroyed()) win.webContents.send('proposal', { title }); },
-      onLateTitle: ({ title }) => { if (composing && compose) compose.webContents.send('compose-title', { title }); },
+      onLateTitle: ({ title, context }) => { if (composing && compose && pendingTask?.context === context) compose.webContents.send('compose-title', { title }); },
       onSent: () => feed.webContents.send('refresh'), onUpdate: () => feed.webContents.send('refresh')
     });
     log('crew: api', crew.api, 'as', crew.who);

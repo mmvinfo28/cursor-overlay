@@ -9,6 +9,10 @@ on:
     paths:
       - "main.js"
       - "results.js"
+      - "crew.js"
+      - "llm.js"
+      - "zipdir.js"
+      - "compose.html"
       - "overlay.html"
       - "feed.html"
       - "icon.png"
