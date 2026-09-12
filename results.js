@@ -15,11 +15,11 @@ function loadConfig(file) {
   return cfg;
 }
 
-// OneDrive if the machine has one (it syncs for free), else Desktop
+// A folder of its own: OneDrive if the machine has one (it syncs for free), else Documents.
 function defaultResultsDir() {
   const od = process.env.OneDrive || process.env.OneDriveCommercial || process.env.OneDriveConsumer;
-  const base = od && fs.existsSync(od) ? od : path.join(os.homedir(), 'Desktop');
-  return path.join(base, 'Crewboard');
+  const base = od && fs.existsSync(od) ? od : path.join(os.homedir(), 'Documents');
+  return path.join(base, 'Crewboard Results');
 }
 
 // folder per task: "2026-09-12 q3 numbers into a sheet"

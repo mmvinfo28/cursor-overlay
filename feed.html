@@ -22,7 +22,29 @@
   #new input:focus { border-color:var(--amber); }
   #new button { background:var(--amber); color:#1a1a1a; border:0; padding:0 14px; border-radius:8px; font:inherit; font-weight:600; cursor:pointer; }
 
-  #list { position:absolute; top:99px; bottom:34px; left:0; right:0; overflow-y:auto; padding:10px 12px; }
+  #tabs { display:flex; gap:4px; padding:8px 12px 0; }
+  #tabs button { background:none; border:0; color:var(--dim); font:inherit; font-weight:600; padding:6px 10px; border-radius:8px; cursor:pointer; }
+  #tabs button.on { background:var(--card); color:#fff; }
+  #tabs .n { margin-left:5px; font-size:11px; color:var(--dim); }
+  #list, #results { position:absolute; top:138px; bottom:34px; left:0; right:0; overflow-y:auto; padding:10px 12px; }
+  #results { display:none; }
+  body.tab-results #list { display:none; }
+  body.tab-results #results { display:block; }
+  #results:empty::before { content:'No results yet. Finished work lands here and in your folder.'; color:var(--dim); display:block; text-align:center; margin-top:60px; }
+  .day { color:var(--dim); font-size:11px; text-transform:uppercase; letter-spacing:.08em; margin:10px 2px 6px; }
+  .res { display:flex; align-items:center; gap:10px; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:8px 10px; margin-bottom:6px; cursor:pointer; }
+  .res:hover { border-color:var(--amber); }
+  .res .ic { font-size:18px; width:24px; text-align:center; flex:none; }
+  .res .nm { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .res .tk { color:var(--dim); font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .res .bd { color:#cfcfcf; font-size:12px; white-space:pre-wrap; word-break:break-word; max-height:40px; overflow:hidden; }
+  .res .rt { margin-left:auto; flex:none; display:flex; gap:6px; align-items:center; color:var(--dim); font-size:11px; }
+  .res .rt button { background:#0f0f11; border:1px solid var(--line); color:#ddd; border-radius:6px; padding:3px 7px; font:inherit; font-size:11px; cursor:pointer; }
+  .res .rt button:hover { border-color:var(--amber); }
+  .res .sync { width:7px; height:7px; border-radius:50%; background:#6ee08a; }
+  .res .sync.cloud { background:#555; }
+  #ft button { background:#0f0f11; border:1px solid var(--line); color:#ddd; border-radius:6px; padding:2px 7px; font:inherit; font-size:11px; cursor:pointer; }
+  #ft button:hover { border-color:var(--amber); }
   #list:empty::before { content:'Nothing yet. Type in Slack, or add a task above.'; color:var(--dim); display:block; text-align:center; margin-top:60px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:8px; }
   .card.new { animation:in .4s cubic-bezier(.34,1.4,.64,1) both; }
@@ -68,10 +90,16 @@
     <input id="q" placeholder="What should the crew do?  (Enter)" />
     <button id="go">Add</button>
   </div>
+  <div id="tabs">
+    <button id="tab-tasks" class="on">Tasks<span class="n" id="n-tasks"></span></button>
+    <button id="tab-results">Results<span class="n" id="n-results"></span></button>
+  </div>
   <div id="list"></div>
+  <div id="results"></div>
   <div id="ft">
-    <span>results →</span><a id="dir" title="Open results folder">…</a>
-    <span class="kbd"><kbd>⇧⇧</kbd> capture · <kbd id="mod">Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> panel</span>
+    <span>📁</span><a id="dir" title="Open results folder">…</a>
+    <button id="change-dir" title="Choose where results are saved">change</button>
+    <span class="kbd"><kbd>⇧⇧</kbd> send · <kbd id="mod">Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> panel</span>
   </div>
 
   <script>
@@ -82,6 +110,50 @@
 
     document.getElementById('hide').onclick = () => ipcRenderer.send('feed-hide');
     document.getElementById('dir').onclick = () => ipcRenderer.send('open-results-dir');
+    document.getElementById('change-dir').onclick = async () => {
+      const dir = await ipcRenderer.invoke('choose-results-dir');
+      if (dir) { cfg.resultsDir = dir; showDir(); load(); }
+    };
+    function showDir() { document.getElementById('dir').textContent = ((cfg && cfg.resultsDir) || '—').replace(require('os').homedir(), '~'); }
+
+    const tabs = { tasks: document.getElementById('tab-tasks'), results: document.getElementById('tab-results') };
+    function showTab(name) {
+      document.body.classList.toggle('tab-results', name === 'results');
+      tabs.tasks.classList.toggle('on', name === 'tasks'); tabs.results.classList.toggle('on', name === 'results');
+      try { localStorage.setItem('tab', name); } catch {}
+    }
+    tabs.tasks.onclick = () => showTab('tasks'); tabs.results.onclick = () => showTab('results');
+    try { showTab(localStorage.getItem('tab') || 'tasks'); } catch {}
+
+    // Results tab: every deliverable, newest first, grouped by day. Click = open (local copy if synced, else the URL).
+    const results = document.getElementById('results');
+    function renderResults(tasks) {
+      const rows = [];
+      for (const t of tasks) for (const d of (t.deliverables || [])) rows.push({ d, t });
+      rows.sort((a, b) => a.d.created_at < b.d.created_at ? 1 : -1);
+      document.getElementById('n-results').textContent = rows.length || '';
+      const frag = document.createDocumentFragment();
+      let day = null;
+      for (const { d, t } of rows) {
+        const dd = new Date(d.created_at).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+        if (dd !== day) { day = dd; const h = document.createElement('div'); h.className = 'day'; h.textContent = dd; frag.appendChild(h); }
+        const local = localFiles[d.id];
+        const el = document.createElement('div');
+        el.className = 'res';
+        el.innerHTML = `<span class="ic">${d.kind === 'pr' ? '🔀' : d.kind === 'text' ? '📝' : '📄'}</span>
+          <div style="min-width:0;flex:1">
+            ${d.kind === 'text' ? `<div class="bd">${esc(d.body)}</div>` : `<div class="nm">${esc(d.name)}</div>`}
+            <div class="tk">${esc(t.title)}${t.worker ? ' · ' + esc(t.worker.name) : ''} · ${ago(d.created_at)}</div>
+          </div>
+          <div class="rt"><span class="sync ${local ? '' : 'cloud'}" title="${local ? 'saved in your folder' : 'cloud only'}"></span>${local ? '<button data-f>folder</button>' : ''}</div>`;
+        el.onclick = e => {
+          if (e.target.dataset.f !== undefined) return shell.showItemInFolder(local);
+          if (local) shell.openPath(local); else if (d.url) shell.openExternal(d.url);
+        };
+        frag.appendChild(el);
+      }
+      results.replaceChildren(frag);
+    }
 
     const h = () => ({ apikey: cfg.anonKey, Authorization: `Bearer ${cfg.anonKey}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' });
 
@@ -159,7 +231,10 @@
         if (!r.ok) throw new Error(r.status);
         localFiles = await ipcRenderer.invoke('local-files');
         const active = document.activeElement;
-        if (!(active && active.tagName === 'INPUT' && active.closest('.card'))) render(await r.json());   // don't clobber an answer being typed
+        const tasks = await r.json();
+        document.getElementById('n-tasks').textContent = tasks.filter(t => t.status !== 'done' && t.status !== 'failed').length || '';
+        if (!(active && active.tagName === 'INPUT' && active.closest('.card'))) render(tasks);   // don't clobber an answer being typed
+        renderResults(tasks);
         st.textContent = 'live'; st.classList.remove('off');
       } catch (e) {
         st.textContent = 'offline'; st.classList.add('off');
@@ -170,7 +245,7 @@
     (async () => {
       cfg = await ipcRenderer.invoke('config');
       if (process.platform === 'darwin') document.getElementById('mod').textContent = '⌘';
-      document.getElementById('dir').textContent = ((cfg && cfg.resultsDir) || '—').replace(require('os').homedir(), '~');
+      showDir();
       load();
       setInterval(load, 3000);
     })();

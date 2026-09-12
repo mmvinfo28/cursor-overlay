@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, nativeImage, shell, screen, globalShortcut, desktopCapturer, ipcMain, clipboard } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, shell, dialog, screen, globalShortcut, desktopCapturer, ipcMain, clipboard } = require('electron');
 const { spawn } = require('child_process');
 const { autoUpdater } = require('electron-updater');
 const results = require('./results');
@@ -347,7 +347,8 @@ function createTray() {
   tray.setToolTip('Crewboard');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Open Crewboard', click: () => toggleFeed(true) },
-    { label: 'Results folder', click: () => { if (resultsSync) shell.openPath(resultsSync.dir); } },
+    { label: 'Open results folder', click: () => { if (resultsSync) shell.openPath(resultsSync.dir); } },
+    { label: 'Change results folder…', click: () => chooseResultsDir() },
     { type: 'separator' },
     { label: 'Show field reader (debug)', type: 'checkbox', checked: showPanel, enabled: READER,
       click: m => { showPanel = m.checked; if (!showPanel) win.webContents.send('field-hide'); } },
@@ -378,6 +379,37 @@ function startUpdater() {
   setInterval(check, 60 * 60 * 1000);
 }
 
+// pick where results go; saved in config.json, sync restarts on the new folder
+async function chooseResultsDir() {
+  const r = await dialog.showOpenDialog({ title: 'Where should Crewboard save results?', properties: ['openDirectory', 'createDirectory'],
+    defaultPath: resultsSync ? resultsSync.dir : undefined });
+  if (r.canceled || !r.filePaths[0]) return null;
+  const dir = r.filePaths[0];
+  let cfg = {};
+  try { cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); } catch {}
+  cfg.resultsDir = dir;
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2));
+  if (resultsSync) resultsSync.stop();
+  resultsSync = startResultsSync();
+  log('results dir ->', dir);
+  return dir;
+}
+
+// finished deliverables land in the results folder, announce themselves at the cursor, refresh the feed
+function startResultsSync() {
+  return results.start({
+    log,
+    configFile: CONFIG_FILE,
+    onResult: ({ title, dir, names }) => {
+      const p = screen.getCursorScreenPoint();
+      const where = dir.replace(os.homedir(), '~');
+      win.webContents.send('toast', { text: `✓ ${title || names[0]}\n${names.join(', ')} → ${where}`, x: p.x, y: p.y });
+      win.webContents.send('fired');
+      feed.webContents.send('refresh');
+    }
+  });
+}
+
 // first run of the installed app: seed config.json from the bundled default
 function ensureConfig() {
   if (fs.existsSync(CONFIG_FILE)) return;
@@ -403,18 +435,7 @@ app.whenReady().then(() => {
   startUpdater();
   if (app.isPackaged && !process.argv.includes('--no-autostart')) app.setLoginItemSettings({ openAtLogin: true });
 
-  // finished deliverables land in OneDrive/Desktop/Crewboard, announce themselves at the cursor, refresh the feed
-  resultsSync = results.start({
-    log,
-    configFile: CONFIG_FILE,
-    onResult: ({ title, dir, names }) => {
-      const p = screen.getCursorScreenPoint();
-      const where = dir.replace(os.homedir(), '~');
-      win.webContents.send('toast', { text: `✓ ${title || names[0]}\n${names.join(', ')} → ${where}`, x: p.x, y: p.y });
-      win.webContents.send('fired');
-      feed.webContents.send('refresh');
-    }
-  });
+  resultsSync = startResultsSync();
 
   const cfg = resultsSync ? resultsSync.cfg : results.loadConfig(CONFIG_FILE);
   if (cfg) {
@@ -426,7 +447,8 @@ app.whenReady().then(() => {
     log('crew: api', crew.api, 'as', crew.who);
   } else log('crew: no config, spine off');
 
-  ipcMain.handle('config', () => cfg);
+  ipcMain.handle('config', () => resultsSync ? resultsSync.cfg : cfg);
+  ipcMain.handle('choose-results-dir', () => chooseResultsDir());
   ipcMain.handle('local-files', () => resultsSync ? resultsSync.localFiles() : {});
   ipcMain.on('feed-hide', () => feed.hide());
   ipcMain.on('open-results-dir', () => { if (resultsSync) shell.openPath(resultsSync.dir); });
@@ -452,11 +474,15 @@ app.whenReady().then(() => {
     setTimeout(async () => {
       toggleFeed(true);
       await sleep(2500);
-      const img = await feed.webContents.capturePage();
       fs.mkdirSync(CAPTURE_DIR, { recursive: true });
-      const file = path.join(CAPTURE_DIR, 'feed.png');
-      fs.writeFileSync(file, img.toPNG());
-      log('FEED SHOT', file);
+      for (const tab of ['tasks', 'results']) {
+        await feed.webContents.executeJavaScript(`document.getElementById('tab-${tab}').click()`);
+        await sleep(600);
+        const img = await feed.webContents.capturePage();
+        const file = path.join(CAPTURE_DIR, `feed-${tab}.png`);
+        fs.writeFileSync(file, img.toPNG());
+        log('FEED SHOT', file);
+      }
     }, 1500);
   }
   if (process.argv.includes('--selftest-toast')) {
