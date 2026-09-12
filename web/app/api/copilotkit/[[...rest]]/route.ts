@@ -5,21 +5,22 @@
 // (OPENROUTER_*, OPENROUTE_* and LLM_*), so read all of them.
 import { CopilotRuntime, OpenAIAdapter, copilotRuntimeNextJSAppRouterEndpoint } from "@copilotkit/runtime";
 import OpenAI from "openai";
+import { copilotProvider, modelFetch } from "@/lib/copilot-provider.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 120;
 
 const env = process.env;
-const KEY   = env.OPENROUTER_API_KEY  ?? env.OPENROUTE_API_KEY  ?? env.LLM_API_KEY;
-const BASE  = env.OPENROUTER_BASE_URL ?? env.OPENROUTE_BASE_URL ?? env.LLM_BASE_URL ?? "https://openrouter.ai/api/v1";
-const MODEL = env.OPENROUTER_MODEL    ?? env.OPENROUTE_MODEL    ?? env.LLM_MODEL    ?? "openrouter/free";
+const provider = copilotProvider(env);
 
 function handler() {
   const { handleRequest } = copilotRuntimeNextJSAppRouterEndpoint({
     runtime: new CopilotRuntime(),
     serviceAdapter: new OpenAIAdapter({
-      openai: new OpenAI({ apiKey: KEY ?? "missing", baseURL: BASE }),
-      model: MODEL,
+      openai: new OpenAI({ apiKey: provider?.apiKey ?? "missing", baseURL: provider?.baseURL, fetch: modelFetch(), timeout: 90000 }),
+      model: provider?.model,
+      disableParallelToolCalls: true,
     } as any),
     endpoint: "/api/copilotkit",
   });
@@ -27,7 +28,7 @@ function handler() {
 }
 
 export const POST = async (req: Request) => {
-  if (!KEY) {
+  if (!provider) {
     return new Response(
       JSON.stringify({
         error: "no API key",
