@@ -51,7 +51,7 @@ function Demo() {
   );
 }
 
-export default async function Landing() {
+export default async function Landing({ signedIn = false }: { signedIn?: boolean }) {
   const rel = await latestRelease();
   const mb = rel?.size ? ` · ${Math.round(rel.size / 1048576)} MB` : "";
   const releases = `https://github.com/${REPO}/releases/latest`;
@@ -64,7 +64,7 @@ export default async function Landing() {
         <nav className="ml-auto flex items-center gap-4 text-sm">
           <a href={releases} className="text-dim hover:text-white">Releases</a>
           <a href={`https://github.com/${REPO}`} className="text-dim hover:text-white">GitHub</a>
-          <Link href="/login" className="btn">Open dashboard</Link>
+          <Link href={signedIn ? "/dashboard" : "/login"} className="btn">{signedIn ? "Open your board" : "Sign in"}</Link>
         </nav>
       </header>
 
@@ -114,7 +114,7 @@ export default async function Landing() {
               <h2 className="font-semibold text-lg">The board</h2>
               <p className="text-sm text-dim mt-1">Every task, every worker, every result — live. Answer a worker&apos;s question from the board, the panel, or the copilot.</p>
             </div>
-            <Link href="/login" className="btn-primary">Sign in with GitHub</Link>
+            <Link href={signedIn ? "/dashboard" : "/login"} className="btn-primary">{signedIn ? "Open your board" : "Sign in with GitHub"}</Link>
           </div>
         </section>
       </main>

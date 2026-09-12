@@ -18,7 +18,7 @@ function Login({ auth0 }: { auth0: boolean }) {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setBusy(false);
     if (error) return setMsg(error.message.includes("Invalid login") ? "No account with that email + password. New here? Create account, or get a magic link." : error.message);
-    router.replace("/"); router.refresh();
+    router.replace("/dashboard"); router.refresh();
   }
 
   async function signUp() {
@@ -26,7 +26,7 @@ function Login({ auth0 }: { auth0: boolean }) {
     const { data, error } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: `${location.origin}/supabase/callback` } });
     setBusy(false);
     if (error) return setMsg(error.message);
-    if (data.session) { router.replace("/"); router.refresh(); return; }
+    if (data.session) { router.replace("/dashboard"); router.refresh(); return; }
     setMsg("Account created. Open the confirmation email, then come back and sign in.");
   }
 

@@ -1,25 +1,10 @@
-import Board from "@/components/Board";
 import Landing from "@/components/Landing";
-import Shell from "@/components/Shell";
 import { getViewer } from "@/lib/session";
-import { createClient } from "@/lib/supabase/server";
-import { TASK_SELECT, type Task, type Worker } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
+// Public home. Signed-in people get the same page with the button pointing at their board.
 export default async function Home() {
   const viewer = await getViewer();
-  if (!viewer) return <Landing />;                      // public home; the board once signed in
-  const supabase = await createClient();
-
-  const [tasks, workers] = await Promise.all([
-    supabase.from("tasks").select(TASK_SELECT).order("created_at", { ascending: false }).limit(200),
-    supabase.from("workers").select("*").order("last_seen", { ascending: false }),
-  ]);
-
-  return (
-    <Shell viewer={viewer} active="board">
-      <Board initialTasks={(tasks.data ?? []) as unknown as Task[]} initialWorkers={(workers.data ?? []) as Worker[]} user={viewer.email || viewer.name} />
-    </Shell>
-  );
+  return <Landing signedIn={!!viewer} />;
 }

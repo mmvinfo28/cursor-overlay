@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { Viewer } from "@/lib/session";
 import Copilot from "@/components/Copilot";
 
-export default function Shell({ viewer, active, children }: { viewer: Viewer; active: "board" | "dashboard" | "results"; children: React.ReactNode }) {
+export default function Shell({ viewer, active, children }: { viewer: Viewer; active: "board" | "insights" | "results"; children: React.ReactNode }) {
   const tab = (href: string, key: string, label: string) => (
     <Link href={href} className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${active === key ? "bg-card-2 text-white shadow-[inset_0_0_0_1px_var(--color-line-2)]" : "text-dim hover:text-white hover:bg-card"}`}>{label}</Link>
   );
@@ -10,14 +10,14 @@ export default function Shell({ viewer, active, children }: { viewer: Viewer; ac
   return (
     <div className="flex-1 flex flex-col">
       <header className="sticky top-0 z-20 flex items-center gap-4 px-5 py-3 border-b border-line bg-[rgba(15,15,17,.8)] backdrop-blur">
-        <Link href="/" className="flex items-center gap-2.5">
+        <Link href="/dashboard" className="flex items-center gap-2.5">
           <span className="ring" />
           <span className="font-semibold tracking-tight">Crewboard</span>
         </Link>
         <nav className="flex gap-1 ml-3">
-          {tab("/", "board", "Board")}
-          {tab("/dashboard", "dashboard", "Dashboard")}
-          {tab("/results", "results", "Results")}
+          {tab("/dashboard", "board", "Board")}
+          {tab("/dashboard/insights", "insights", "Insights")}
+          {tab("/dashboard/results", "results", "Results")}
         </nav>
         <div className="ml-auto flex items-center gap-3">
           <span className="hidden sm:block text-xs text-dim truncate max-w-[220px]" title={viewer.email}>{viewer.name}</span>
