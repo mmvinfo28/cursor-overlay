@@ -7,7 +7,7 @@ const os = require('os');
 const path = require('path');
 
 const QUICK_RADIUS = 200; // DIP: a plain click (no drag) grabs a 400x400 box around it
-const READER = process.argv.includes('--reader'); // spawn the UIA field reader
+const READER = process.argv.includes('--reader') || app.isPackaged; // field reader: opt-in in dev, always on when installed
 let showPanel = process.argv.includes('--panel');      // the live field-text panel is a debug surface: hidden unless asked
 
 // installed: user files live in %APPDATA%\Crewboard, helpers are unpacked next to the asar.
@@ -358,6 +358,7 @@ if (!app.requestSingleInstanceLock()) app.quit();
 app.on('second-instance', () => { if (feed) toggleFeed(true); });
 
 app.whenReady().then(() => {
+  log('Crewboard', app.getVersion(), app.isPackaged ? 'packaged' : 'dev', process.platform);
   ensureConfig();
   if (process.platform === 'darwin' && app.dock) app.dock.hide();  // tray app, no dock icon
   createOverlay();
