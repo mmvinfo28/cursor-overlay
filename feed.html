@@ -26,10 +26,13 @@
   #tabs button { background:none; border:0; color:var(--dim); font:inherit; font-weight:600; padding:6px 10px; border-radius:8px; cursor:pointer; }
   #tabs button.on { background:var(--card); color:#fff; }
   #tabs .n { margin-left:5px; font-size:11px; color:var(--dim); }
-  #list, #results { position:absolute; top:138px; bottom:34px; left:0; right:0; overflow-y:auto; padding:10px 12px; }
-  #results { display:none; }
-  body.tab-results #list { display:none; }
+  #list, #done, #results { position:absolute; top:138px; bottom:34px; left:0; right:0; overflow-y:auto; padding:10px 12px; }
+  #done, #results { display:none; }
+  body.tab-done #list, body.tab-results #list { display:none; }
+  body.tab-done #done { display:block; }
   body.tab-results #results { display:block; }
+  #list:empty::before { content:'No active tasks. Completed work is in Done and Results.'; color:var(--dim); display:block; text-align:center; margin-top:60px; }
+  #done:empty::before { content:'No completed tasks yet.'; color:var(--dim); display:block; text-align:center; margin-top:60px; }
   #results:empty::before { content:'No results yet. Finished work lands here and in your folder.'; color:var(--dim); display:block; text-align:center; margin-top:60px; }
   .day { color:var(--dim); font-size:11px; text-transform:uppercase; letter-spacing:.08em; margin:10px 2px 6px; }
   .res { display:flex; align-items:center; gap:10px; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:8px 10px; margin-bottom:6px; cursor:pointer; }
@@ -45,7 +48,6 @@
   .res .sync.cloud { background:#555; }
   #ft button { background:#0f0f11; border:1px solid var(--line); color:#ddd; border-radius:6px; padding:2px 7px; font:inherit; font-size:11px; cursor:pointer; }
   #ft button:hover { border-color:var(--amber); }
-  #list:empty::before { content:'Nothing yet. Type in Slack, or add a task above.'; color:var(--dim); display:block; text-align:center; margin-top:60px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:8px; }
   .card.new { animation:in .4s cubic-bezier(.34,1.4,.64,1) both; }
   @keyframes in { from { transform:translateY(-6px); opacity:0; } }
@@ -95,9 +97,11 @@
   </div>
   <div id="tabs">
     <button id="tab-tasks" class="on">Tasks<span class="n" id="n-tasks"></span></button>
+    <button id="tab-done">Done<span class="n" id="n-done"></span></button>
     <button id="tab-results">Results<span class="n" id="n-results"></span></button>
   </div>
   <div id="list"></div>
+  <div id="done"></div>
   <div id="results"></div>
   <div id="ft">
     <span>📁</span><a id="dir" title="Open results folder">…</a>
@@ -119,13 +123,15 @@
     };
     function showDir() { document.getElementById('dir').textContent = ((cfg && cfg.resultsDir) || '—').replace(require('os').homedir(), '~'); }
 
-    const tabs = { tasks: document.getElementById('tab-tasks'), results: document.getElementById('tab-results') };
+    const tabs = { tasks: document.getElementById('tab-tasks'), done: document.getElementById('tab-done'), results: document.getElementById('tab-results') };
     function showTab(name) {
+      if (!Object.hasOwn(tabs, name)) name = 'tasks';
+      document.body.classList.toggle('tab-done', name === 'done');
       document.body.classList.toggle('tab-results', name === 'results');
-      tabs.tasks.classList.toggle('on', name === 'tasks'); tabs.results.classList.toggle('on', name === 'results');
+      for (const [key, button] of Object.entries(tabs)) button.classList.toggle('on', name === key);
       try { localStorage.setItem('tab', name); } catch {}
     }
-    tabs.tasks.onclick = () => showTab('tasks'); tabs.results.onclick = () => showTab('results');
+    for (const name of Object.keys(tabs)) tabs[name].onclick = () => showTab(name);
     try { showTab(localStorage.getItem('tab') || 'tasks'); } catch {}
 
     // Results tab: every deliverable, newest first, grouped by day. Click = open (local copy if synced, else the URL).
@@ -188,12 +194,12 @@
     }
     const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-    function render(tasks) {
+    function render(tasks, target = list) {
       const frag = document.createDocumentFragment();
       for (const t of tasks) {
         const card = document.createElement('div');
-        card.className = 'card' + (!first && !known.has(t.id) ? ' new' : '');
-        known.add(t.id);
+        card.className = 'card' + (target === list && !first && !known.has(t.id) ? ' new' : '');
+        if (target === list) known.add(t.id);
         const dl = (t.deliverables || []).slice().sort((a, b) => a.created_at < b.created_at ? -1 : 1);
         const summary = dl.find(d => d.kind === 'text');
         const files = dl.filter(d => d.kind !== 'text');
@@ -227,8 +233,8 @@
         }
         frag.appendChild(card);
       }
-      list.replaceChildren(frag);
-      first = false;
+      target.replaceChildren(frag);
+      if (target === list) first = false;
     }
 
     let loading = false;
@@ -236,15 +242,23 @@
       if (!cfg || loading) return;
       loading = true;
       try {
-        const url = `${cfg.supabaseUrl}/rest/v1/tasks?select=*,worker:workers(name,kind),deliverables(*),events(kind,payload,at)&order=created_at.desc&limit=100`;
-        const r = await fetch(url, { headers: { apikey: cfg.anonKey, Authorization: `Bearer ${cfg.anonKey}` } });
-        if (!r.ok) throw new Error(r.status);
+        // Filter before the limit: completed history must not crowd active work out.
+        const url = `${cfg.supabaseUrl}/rest/v1/tasks?select=*,worker:workers(name,kind),deliverables(*),events(kind,payload,at)`;
+        const options = { headers: { apikey: cfg.anonKey, Authorization: `Bearer ${cfg.anonKey}` } };
+        const [r, completed] = await Promise.all([
+          fetch(`${url}&status=neq.done&order=created_at.desc&limit=100`, options),
+          fetch(`${url}&status=eq.done&order=updated_at.desc&limit=100`, options),
+        ]);
+        if (!r.ok || !completed.ok) throw new Error(!r.ok ? r.status : completed.status);
         localFiles = await ipcRenderer.invoke('local-files');
         const active = document.activeElement;
         const tasks = await r.json();
-        document.getElementById('n-tasks').textContent = tasks.filter(t => t.status !== 'done' && t.status !== 'failed').length || '';
+        const doneTasks = await completed.json();
+        document.getElementById('n-tasks').textContent = tasks.length || '';
+        document.getElementById('n-done').textContent = doneTasks.length || '';
         if (!(active && active.tagName === 'INPUT' && active.closest('.card'))) render(tasks);   // don't clobber an answer being typed
-        renderResults(tasks);
+        render(doneTasks, document.getElementById('done'));
+        renderResults(doneTasks);
         st.textContent = 'live'; st.classList.remove('off');
       } catch (e) {
         st.textContent = 'offline'; st.classList.add('off');
