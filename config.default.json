@@ -1,5 +1,8 @@
 {
   "supabaseUrl": "https://fpjbtolqyfxxrjvtubjj.supabase.co",
   "anonKey": "sb_publishable_GKMx6kQd93PWC2OLon9ojg_urweQPbN",
-  "resultsDir": null
+  "resultsDir": null,
+  "apiBase": "https://crewboard-web.vercel.app",
+  "user": null,
+  "localPropose": true
 }

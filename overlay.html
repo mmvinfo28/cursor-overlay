@@ -85,6 +85,10 @@
     transition:opacity .25s, transform .45s cubic-bezier(.34,1.6,.64,1);
   }
   #toast.on { opacity:1; transform:scale(1); }
+  #toast.k-proposal { border-color:#E9A23B; box-shadow:0 6px 24px rgba(0,0,0,.35), 0 0 0 3px rgba(233,162,59,.18); }
+  #toast.k-sent, #toast.k-progress { border-color:#6EE08A; }
+  #toast.k-ask { border-color:#8fb0ff; }
+  #toast.k-fail { border-color:#e06e6e; }
 
   /* reader panel: live view of the focused field + local-filter verdict (test surface, --reader) */
   #panel {
@@ -209,7 +213,8 @@
     ipcRenderer.on('show', () => body.classList.remove('hidden-ui'));
     // captured text next to the cursor, kept inside the screen, gone after 3.5s
     let toastTimer = null;
-    ipcRenderer.on('toast', (_, { text, x, y }) => {
+    ipcRenderer.on('toast', (_, { text, x, y, kind, ttl }) => {
+      toast.className = kind ? 'k-' + kind : '';
       toast.textContent = text.length > 400 ? text.slice(0, 400) + '…' : text;
       toast.style.left = '0px'; toast.style.top = '0px';
       const w = toast.offsetWidth, h = toast.offsetHeight;
@@ -217,7 +222,7 @@
       toast.style.top  = Math.max(8, Math.min(y + 24, innerHeight - h - 8)) + 'px';
       toast.classList.add('on');
       clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => toast.classList.remove('on'), 3500);
+      toastTimer = setTimeout(() => toast.classList.remove('on'), ttl || 3500);
     });
 
     let hitTimer = null;
@@ -276,6 +281,15 @@
         taskLabelVisible = setTimeout(hideTaskLabel, 4000);
       }, 650);
     });
+    // the model (or local fallback) named the task: the pill shows it and stays until the proposal expires
+    ipcRenderer.on('proposal', (_, { title }) => {
+      clearTimeout(taskLabelVisible);
+      taskLabel.textContent = '↯ ' + title + '  ·  ⇧⇧ to send';
+      taskLabel.classList.remove('confirmed');
+      taskLabel.classList.add('on');
+      ipcRenderer.send('task-label-state', true);
+      taskLabelVisible = setTimeout(hideTaskLabel, 6000);
+    });
     ipcRenderer.on('task-label-confirmed', () => {
       detectionGeneration++;
       clearTimeout(detectionDelay);
@@ -283,7 +297,7 @@
       clearTimeout(taskLabelVisible);
       confirmedText = detectedText;
       buddy.classList.remove('detected');
-      taskLabel.textContent = 'Task selected';
+      taskLabel.textContent = 'Task selected → sending';
       taskLabel.classList.add('confirmed', 'on');
       ipcRenderer.send('task-label-state', false);
       taskLabelVisible = setTimeout(hideTaskLabel, 1200);

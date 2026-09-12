@@ -2,6 +2,7 @@ const { app, BrowserWindow, Tray, Menu, nativeImage, shell, screen, globalShortc
 const { spawn } = require('child_process');
 const { autoUpdater } = require('electron-updater');
 const results = require('./results');
+const crewmod = require('./crew');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -27,6 +28,8 @@ let taskLabelActive = false;
 let fieldReaderPrimed = false;
 let uiaHelper = null;
 let resultsSync = null;
+let crew = null;                 // the spine (crew.js): propose → send → track
+let lastField = { app: null, text: '' };
 
 ipcMain.on('task-label-state', (_, active) => { taskLabelActive = active === true; });
 
@@ -152,6 +155,8 @@ function onFieldLine(line) {
   const signalPass = fieldReaderPrimed && pass;
   fieldReaderPrimed = true;
   log('field', f.app, f.type, `${f.len}ch`, f.src, pass ? 'PASS' : 'silent', signals.join(','));
+  lastField = { app: f.app, text: f.text || '' };
+  if (pass && crew) crew.onField(f);
   if (!win.isDestroyed()) {
     win.webContents.send('signal', { pass: signalPass, text: f.text || '' });
     if (showPanel) win.webContents.send('field', { ...f, pass, signals });
@@ -193,6 +198,19 @@ async function grabSelectedText() {
   }
 }
 
+function toastAtCursor({ text, kind, ttl }) {
+  const p = screen.getCursorScreenPoint();
+  if (!win.isDestroyed()) win.webContents.send('toast', { text, x: p.x, y: p.y, kind, ttl });
+}
+
+// double-tap while a proposal is showing: the proposal is the task. Otherwise selection / crop become the task.
+async function sendProposal(p) {
+  const c = screen.getCursorScreenPoint();
+  const crop = await captureRect(quickRect(c.x, c.y)).catch(e => { log('crop for task failed', e.message); return null; });
+  win.webContents.send('fired');
+  await crew.send({ title: p.title, context: p.context, app: p.app, cropPng: crop && crop.toPNG() });
+}
+
 function saveText(text) {
   fs.mkdirSync(CAPTURE_DIR, { recursive: true });
   const file = path.join(CAPTURE_DIR, `text-${Date.now()}.txt`);
@@ -207,17 +225,22 @@ function saveText(text) {
 // otherwise the user drags a rectangle (Esc / right-click cancels)
 async function onHotkey() {
   if (selecting) return;
-  if (taskLabelActive) {
+  // double-tap while the "Create a task" pill is up: the proposal (model title) or, if the model hasn't answered
+  // yet, the current line itself becomes the task. The pill flips to "Task selected", crew.js sends it.
+  const p = crew && (crew.takeProposal() || (taskLabelActive ? crew.fromField(lastField) : null));
+  if (p) {
     taskLabelActive = false;
-    log('task label confirmed');
+    log('task confirmed', p.title);
     if (!win.isDestroyed()) win.webContents.send('task-label-confirmed');
-    return;
+    return sendProposal(p).catch(e => { log('SEND FAIL', e.message); toastAtCursor({ text: `✗ could not send: ${e.message}`, kind: 'fail' }); });
   }
   startSelect();
   const text = await grabSelectedText().catch(e => { log('text grab failed', e.message); return null; });
   if (text && selecting) {
     endSelect();
     saveText(text);
+    if (crew) crew.send({ title: text.replace(/\s+/g, ' ').trim().slice(0, 80), context: text, app: lastField.app })
+      .catch(e => { log('SEND FAIL', e.message); toastAtCursor({ text: `✗ could not send: ${e.message}`, kind: 'fail' }); });
   }
 }
 
@@ -393,7 +416,17 @@ app.whenReady().then(() => {
     }
   });
 
-  ipcMain.handle('config', () => resultsSync ? resultsSync.cfg : results.loadConfig(CONFIG_FILE));
+  const cfg = resultsSync ? resultsSync.cfg : results.loadConfig(CONFIG_FILE);
+  if (cfg) {
+    crew = crewmod.create({
+      cfg, log, onToast: toastAtCursor,
+      onProposal: ({ title }) => { taskLabelActive = true; if (!win.isDestroyed()) win.webContents.send('proposal', { title }); },
+      onSent: () => feed.webContents.send('refresh'), onUpdate: () => feed.webContents.send('refresh')
+    });
+    log('crew: api', crew.api, 'as', crew.who);
+  } else log('crew: no config, spine off');
+
+  ipcMain.handle('config', () => cfg);
   ipcMain.handle('local-files', () => resultsSync ? resultsSync.localFiles() : {});
   ipcMain.on('feed-hide', () => feed.hide());
   ipcMain.on('open-results-dir', () => { if (resultsSync) shell.openPath(resultsSync.dir); });
@@ -403,7 +436,11 @@ app.whenReady().then(() => {
   ipcMain.on('region', (_, rect) => {
     log('region', rect);
     endSelect();
-    captureRect(rect).catch(e => log('CAPTURE FAIL', e.message));
+    captureRect(rect).then(crop => {
+      if (!crop || !crew) return;
+      const app = lastField.app || 'screen';
+      return crew.send({ title: `Screenshot from ${app}`, context: lastField.text ? lastField.text.slice(0, 500) : null, app, cropPng: crop.toPNG() });
+    }).catch(e => { log('CAPTURE/SEND FAIL', e.message); toastAtCursor({ text: `✗ ${e.message}`, kind: 'fail' }); });
   });
   ipcMain.on('cancel', () => { log('cancel'); endSelect(); });
 

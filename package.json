@@ -26,6 +26,7 @@
     "files": [
       "main.js",
       "results.js",
+      "crew.js",
       "overlay.html",
       "feed.html",
       "icon.png",
