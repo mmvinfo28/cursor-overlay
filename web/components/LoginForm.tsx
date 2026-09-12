@@ -14,9 +14,10 @@ function Login({ auth0 }: { auth0: boolean }) {
 
   async function signIn() {
     setBusy(true); setMsg(null);
+    if (!password) return setMsg("Type your password, or use GitHub / the magic link.");
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setBusy(false);
-    if (error) return setMsg(error.message);
+    if (error) return setMsg(error.message.includes("Invalid login") ? "No account with that email + password. New here? Create account, or get a magic link." : error.message);
     router.replace("/"); router.refresh();
   }
 
@@ -26,7 +27,7 @@ function Login({ auth0 }: { auth0: boolean }) {
     setBusy(false);
     if (error) return setMsg(error.message);
     if (data.session) { router.replace("/"); router.refresh(); return; }
-    setMsg("Check your inbox to confirm the account, then sign in.");
+    setMsg("Account created. Open the confirmation email, then come back and sign in.");
   }
 
   async function github() {
@@ -60,7 +61,7 @@ function Login({ auth0 }: { auth0: boolean }) {
           <button className="btn flex-1" type="submit" disabled={busy}>Sign in</button>
           <button className="btn flex-1" type="button" onClick={signUp} disabled={busy}>Create account</button>
         </div>
-        <button className="w-full text-xs text-dim hover:text-amber" type="button" onClick={magicLink} disabled={busy}>or email me a magic link</button>
+        <button className="btn w-full" type="button" onClick={magicLink} disabled={busy}>Email me a magic link (no password)</button>
         {msg && <p className="text-xs text-amber">{msg}</p>}
       </form>
     </main>
