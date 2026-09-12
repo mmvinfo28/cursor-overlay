@@ -1,6 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/server';
 import { authorized, tick } from '@/lib/worker.mjs';
-import { PDFParse } from 'pdf-parse';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -14,6 +13,7 @@ export async function POST(request) {
       workerId: process.env.QWEN_WORKER_ID,
       env: process.env,
       extractPdf: async bytes => {
+        const { PDFParse } = await import('pdf-parse');
         const parser = new PDFParse({ data: bytes, isEvalSupported: false });
         try { return (await parser.getText()).text; } finally { await parser.destroy(); }
       },

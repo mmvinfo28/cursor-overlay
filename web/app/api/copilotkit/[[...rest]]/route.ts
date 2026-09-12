@@ -5,6 +5,7 @@
 // (OPENROUTER_*, OPENROUTE_* and LLM_*), so read all of them.
 import { CopilotRuntime, OpenAIAdapter, copilotRuntimeNextJSAppRouterEndpoint } from "@copilotkit/runtime";
 import OpenAI from "openai";
+import { createOpenAI } from "@ai-sdk/openai";
 import { copilotProvider, modelFetch } from "@/lib/copilot-provider.mjs";
 
 export const runtime = "nodejs";
@@ -14,10 +15,18 @@ export const maxDuration = 120;
 const env = process.env;
 const provider = copilotProvider(env);
 
+// CopilotKit 1.71 builds its default agent from getLanguageModel(), whose
+// OpenAIAdapter implementation defaults to /responses. Qwen serves /chat/completions.
+class ChatCompletionsAdapter extends OpenAIAdapter {
+  getLanguageModel() {
+    return createOpenAI({ apiKey: provider?.apiKey ?? "missing", baseURL: provider?.baseURL, fetch: modelFetch() }).chat(provider?.model ?? "missing");
+  }
+}
+
 function handler() {
   const { handleRequest } = copilotRuntimeNextJSAppRouterEndpoint({
     runtime: new CopilotRuntime(),
-    serviceAdapter: new OpenAIAdapter({
+    serviceAdapter: new ChatCompletionsAdapter({
       openai: new OpenAI({ apiKey: provider?.apiKey ?? "missing", baseURL: provider?.baseURL, fetch: modelFetch(), timeout: 90000 }),
       model: provider?.model,
       disableParallelToolCalls: true,
