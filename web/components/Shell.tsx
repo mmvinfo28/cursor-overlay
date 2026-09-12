@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { Viewer } from "@/lib/session";
 import Copilot from "@/components/Copilot";
 
-export default function Shell({ viewer, active, children }: { viewer: Viewer; active: "board" | "results"; children: React.ReactNode }) {
+export default function Shell({ viewer, active, children }: { viewer: Viewer; active: "board" | "dashboard" | "results"; children: React.ReactNode }) {
   const tab = (href: string, key: string, label: string) => (
     <Link href={href} className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${active === key ? "bg-card-2 text-white shadow-[inset_0_0_0_1px_var(--color-line-2)]" : "text-dim hover:text-white hover:bg-card"}`}>{label}</Link>
   );
@@ -16,6 +16,7 @@ export default function Shell({ viewer, active, children }: { viewer: Viewer; ac
         </Link>
         <nav className="flex gap-1 ml-3">
           {tab("/", "board", "Board")}
+          {tab("/dashboard", "dashboard", "Dashboard")}
           {tab("/results", "results", "Results")}
         </nav>
         <div className="ml-auto flex items-center gap-3">
