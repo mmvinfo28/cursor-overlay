@@ -9,3 +9,4 @@ config.json
 dist/
 .auth0-mcp-writes.log
 backend/runtime/
+!backend/.env.ambiguous.example
