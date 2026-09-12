@@ -30,59 +30,70 @@ function ReadFocused {
   } catch { return $null }
   if ($null -eq $el) { return $null }
 
-  # Read text from an element via ValuePattern (edits) or TextPattern (rich/multiline)
   function ReadEl($e) {
+    try {
+      if (-not $e.Current.HasKeyboardFocus -or -not $e.Current.IsEnabled) { return $null }
+    } catch { return $null }
+
+    $type = "?"
+    try { $type = $e.Current.ControlType.ProgrammaticName -replace 'ControlType\.','' } catch {}
+
     try {
       $vp = $null
       if ($valPat -and $e.TryGetCurrentPattern($valPat, [ref]$vp)) {
+        if ($vp.Current.IsReadOnly) { return $null }
         $v = $vp.Current.Value
-        if (-not [string]::IsNullOrEmpty($v)) { return @($v, 'value') }
+        return @([string]$v, 'value')
       }
     } catch {}
+
+    if ($type -notin @('Edit', 'Document')) { return $null }
     try {
       $tp = $null
       if ($txtPat -and $e.TryGetCurrentPattern($txtPat, [ref]$tp)) {
+        $readOnly = $tp.DocumentRange.GetAttributeValue([System.Windows.Automation.TextPattern]::IsReadOnlyAttribute)
+        if ($readOnly -is [bool] -and $readOnly) { return $null }
         $v = $tp.DocumentRange.GetText($CAP)
-        if (-not [string]::IsNullOrEmpty($v)) { return @($v, 'text') }
+        return @([string]$v, 'text')
       }
     } catch {}
     return $null
   }
 
-  $text = $null; $src = "none"
   $r = ReadEl $el
-  if ($r) { $text = $r[0]; $src = $r[1] }
-
-  # Fallback for WebView2/Chromium containers: FocusedElement returns the outer Pane, so
-  # look for the descendant that actually holds keyboard focus and read that.
-  if ([string]::IsNullOrEmpty($text)) {
+  if ($null -eq $r) {
     try {
       $cond = New-Object System.Windows.Automation.PropertyCondition(
         [System.Windows.Automation.AutomationElement]::HasKeyboardFocusProperty, $true)
       $inner = $el.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)
       if ($inner -and $inner -ne $el) {
         $r = ReadEl $inner
-        if ($r) { $text = $r[0]; $src = $r[1] + "+focus"; $el = $inner }
+        if ($null -ne $r) { $r[1] = $r[1] + "+focus"; $el = $inner }
       }
     } catch {}
   }
-  # Name as last resort (some controls expose the typed text only as Name)
-  if ($null -eq $text) {
-    try { $text = $el.Current.Name; $src = "name" } catch {}
-  }
-  if ($null -eq $text) { $text = "" }
+  if ($null -eq $r) { return $null }
+
+  $text = [string]$r[0]
+  $src = [string]$r[1]
   if ($text.Length -gt $CAP) { $text = $text.Substring(0, $CAP) }
 
   $procId = 0; try { $procId = $el.Current.ProcessId } catch {}
   $type = "?"; try { $type = $el.Current.ControlType.ProgrammaticName -replace 'ControlType\.','' } catch {}
+  $runtime = ""; try { $runtime = $el.GetRuntimeId() -join '.' } catch {}
+  $automationId = ""; try { $automationId = $el.Current.AutomationId } catch {}
+  $hwnd = [int64][FG]::GetForegroundWindow()
+  $field = "$procId|$runtime"
+  if ([string]::IsNullOrEmpty($runtime)) { $field = "$procId|$hwnd|$type|$automationId" }
 
   [pscustomobject]@{
     app  = ProcName $procId
     type = $type
     len  = $text.Length
     text = $text
-    hwnd = [int64][FG]::GetForegroundWindow()
+    hwnd = $hwnd
     src  = $src
+    field = $field
   }
 }
 
@@ -100,12 +111,20 @@ if ($args -contains 'once') {
 }
 
 [Console]::Out.WriteLine('ready'); [Console]::Out.Flush()
-$lastKey = ""
+$lastTextByField = @{}
 while ($true) {
   $r = ReadFocused
   if ($null -ne $r) {
-    $key = "$($r.hwnd)|$($r.type)|$($r.text)"
-    if ($key -ne $lastKey) { $lastKey = $key; Emit $r }
+    $field = [string]$r.field
+    if (-not $lastTextByField.ContainsKey($field)) {
+      $lastTextByField[$field] = [string]$r.text
+      $r | Add-Member -NotePropertyName changed -NotePropertyValue $false
+      Emit $r
+    } elseif ([string]$lastTextByField[$field] -cne [string]$r.text) {
+      $lastTextByField[$field] = [string]$r.text
+      $r | Add-Member -NotePropertyName changed -NotePropertyValue $true
+      Emit $r
+    }
   }
   Start-Sleep -Milliseconds 250
 }

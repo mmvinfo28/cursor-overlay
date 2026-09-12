@@ -27,7 +27,6 @@ let feed = null;
 let tray = null;
 let selecting = false;
 let taskLabelActive = false;
-let fieldReaderPrimed = false;
 let uiaHelper = null;
 let resultsSync = null;
 let crew = null;                 // the spine (crew.js): propose → send → track
@@ -37,10 +36,7 @@ let lastField = { app: null, text: '' };
 
 ipcMain.on('task-label-state', (_, active) => { taskLabelActive = active === true; });
 
-// Cheap local filter: does the field look like it might carry an actionable commitment?
-// Runs before any model call. A strong signal (date / time / filename / promise verb) passes;
-// a bare number does not, so ordinary typing stays silent.
-const PROMISE = /\b(i'?ll|i will|will|send|sending|share|follow up|get back|by eod|deadline|remind|schedule|trimit|o s[ăa]|voi |promit|termin|rezolv|revin|pân[ăa]|amân|programez)\b/i;
+const PROMISE = /\b(i'?ll|i will|i'?m going to|i am going to|we'?ll|we will|we'?re going to|we are going to|send|sending|share|follow up|get back|remind|schedule|finish|complete|deliver|submit|upload|prepare|trimit|o s[ăa]|voi|promit|termin|rezolv|revin|amân|programez)\b/i;
 const DATE = /\b(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[.\/]\d{1,2}([.\/]\d{2,4})?|mon|tue|wed|thu|fri|sat|sun|today|tomorrow|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec|luni|mar[țt]i|miercuri|joi|vineri|s[âa]mb[ăa]t[ăa]|duminic[ăa]|azi|m[âa]ine|poim[âa]ine|ianuarie|februarie|martie|aprilie|mai|iunie|iulie|august|septembrie|octombrie|noiembrie|decembrie)\b/i;
 const TIME = /\b(\d{1,2}:\d{2}|\d{1,2}\s?(am|pm)|ora\s?\d{1,2})\b/i;
 const FILE = /\b[\w-]+\.(xlsx?|docx?|pdf|png|jpe?g|csv|txt|pptx?|zip|md|json|js|ts|py|sql)\b/i;
@@ -54,7 +50,7 @@ function localFilter(text) {
   if (PROMISE.test(text)) signals.push('promise');
   const weakNum = signals.length === 0 && NUM.test(text);
   if (weakNum) signals.push('number?');
-  const strong = signals.some(s => s !== 'number?');
+  const strong = signals.includes('promise');
   return { pass: strong, signals };
 }
 
@@ -156,14 +152,13 @@ function onFieldLine(line) {
   let f;
   try { f = JSON.parse(line); } catch { return log('uia parse fail', line.slice(0, 120)); }
   const { pass, signals } = localFilter(f.text || '');
-  const signalPass = fieldReaderPrimed && pass;
-  fieldReaderPrimed = true;
-  log('field', f.app, f.type, `${f.len}ch`, f.src, pass ? 'PASS' : 'silent', signals.join(','));
+  const signalPass = f.changed === true && pass;
+  log('field', f.app, f.type, `${f.len}ch`, f.src, f.changed ? 'changed' : 'baseline', signalPass ? 'PASS' : 'silent', signals.join(','));
   lastField = { app: f.app, text: f.text || '' };
-  if (pass && crew) crew.onField(f);
+  if (signalPass && crew) crew.onField(f);
   if (!win.isDestroyed()) {
     win.webContents.send('signal', { pass: signalPass, text: f.text || '' });
-    if (showPanel) win.webContents.send('field', { ...f, pass, signals });
+    if (showPanel) win.webContents.send('field', { ...f, pass: signalPass, signals });
   }
 }
 
