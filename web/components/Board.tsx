@@ -49,6 +49,11 @@ export default function Board({ initialTasks, initialWorkers, user }: { initialT
     reload();
   }
 
+  async function remove(taskId: string) {
+    await supabase.from("tasks").delete().eq("id", taskId);
+    reload();
+  }
+
   async function answer(taskId: string, text: string) {
     if (!text.trim()) return;
     await supabase.from("events").insert({ task_id: taskId, kind: "human-answer", payload: { text, by: user } });
@@ -110,47 +115,50 @@ export default function Board({ initialTasks, initialWorkers, user }: { initialT
   });
 
 
+  const online = workers.filter((w) => w.status !== "dead" && Date.now() - new Date(w.last_seen).getTime() < 60000).length;
+  const dots: Record<string, string> = { open: "#c9c9cf", working: "var(--color-amber)", ask: "var(--color-ask)", done: "var(--color-ok)" };
+
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-3">
-        <input className="input max-w-xl" placeholder="What should the crew do?  (Enter)" value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addTask()} />
-        <button className="btn-primary" onClick={addTask}>Add</button>
-        <div className="ml-auto flex items-center gap-5 text-xs text-dim">
-          <span><b className="text-white">{workers.filter((w) => w.status !== "dead" && Date.now() - new Date(w.last_seen).getTime() < 60000).length}</b> workers online</span>
-          <span><b className="text-white">{doneToday}</b> done today</span>
-          <span><b className="text-white">${cost.toFixed(3)}</b> spent</span>
-          <span className={live ? "text-ok" : ""}>{live ? "● live" : "○ polling"}</span>
+    <div className="flex flex-col gap-4 fade-in">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[260px] max-w-2xl">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-dim text-sm">↯</span>
+          <input className="input !pl-8" placeholder="What should the crew do?  (Enter)" value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addTask()} />
+        </div>
+        <button className="btn-primary" onClick={addTask}>Add task</button>
+        <div className="ml-auto flex items-center gap-2">
+          <div className="stat"><b>{online}</b><span>workers online</span></div>
+          <div className="stat"><b>{doneToday}</b><span>done today</span></div>
+          <div className="stat"><b>${cost.toFixed(3)}</b><span>spent</span></div>
+          <div className="stat items-center" title={live ? "Realtime connected" : "Polling every 15 s"}>
+            <span className="flex items-center gap-2"><span className={`live-dot ${live ? "" : "off"}`} /><b className="text-sm">{live ? "live" : "polling"}</b></span>
+            <span>updates</span>
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr_1fr_1fr_220px] gap-3 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr_1fr_1fr_240px] gap-3 items-start">
         {COLUMNS.map((c) => {
           const rows = tasks.filter((t) => c.statuses.includes(t.status));
           return (
-            <section key={c.key} className="rounded-xl border border-line bg-[#111113] min-h-40">
-              <h2 className="px-3 py-2 text-xs uppercase tracking-wide text-dim border-b border-line flex justify-between">{c.label}<span>{rows.length}</span></h2>
+            <section key={c.key} className="surface min-h-48">
+              <h2 className="col-head"><span className="dot" style={{ background: dots[c.key] }} />{c.label}<span className="n">{rows.length}</span></h2>
               <div className="p-2 flex flex-col gap-2">
-                {rows.map((t) => <Card key={t.id} t={t} onAnswer={answer} />)}
-                {rows.length === 0 && <p className="text-xs text-dim text-center py-6">—</p>}
+                {rows.map((t) => <Card key={t.id} t={t} onAnswer={answer} onRemove={remove} />)}
+                {rows.length === 0 && (
+                  <div className="empty"><span className="glyph" />
+                    {c.key === "open" ? "Type a commitment anywhere, double-tap Shift." : c.key === "working" ? "Nothing in flight." : c.key === "ask" ? "No questions from the crew." : "Nothing shipped yet."}
+                  </div>
+                )}
               </div>
             </section>
           );
         })}
-        <aside className="rounded-xl border border-line bg-[#111113]">
-          <h2 className="px-3 py-2 text-xs uppercase tracking-wide text-dim border-b border-line">Workers</h2>
-          <ul className="p-2 flex flex-col gap-1">
-            {workers.map((w) => {
-              const alive = w.status !== "dead" && Date.now() - new Date(w.last_seen).getTime() < 60000;
-              return (
-                <li key={w.id} className="flex items-center gap-2 text-sm px-2 py-1.5 rounded-lg bg-card">
-                  <span className={`w-2 h-2 rounded-full ${alive ? "bg-ok" : "bg-bad"}`} />
-                  <span className="font-medium">{w.name}</span>
-                  <span className="text-dim text-xs">{w.kind}</span>
-                  <span className="ml-auto text-dim text-xs">{ago(w.last_seen)}</span>
-                </li>
-              );
-            })}
-            {workers.length === 0 && <li className="text-xs text-dim text-center py-6">no workers yet</li>}
+        <aside className="surface">
+          <h2 className="col-head"><span className="dot" style={{ background: "#8fb0ff" }} />Workers<span className="n">{online}/{workers.length}</span></h2>
+          <ul className="p-2 flex flex-col gap-2">
+            {workers.map((w) => <WorkerCard key={w.id} w={w} busy={tasks.filter((t) => t.worker_id === w.id && (t.status === "claimed" || t.status === "running")).length} />)}
+            {workers.length === 0 && <li className="empty"><span className="glyph" />No workers connected.<span className="text-[11px]">Start one: <code className="text-[#c9c9cf]">backend/start-worker.ps1</code></span></li>}
           </ul>
         </aside>
       </div>
@@ -158,22 +166,57 @@ export default function Board({ initialTasks, initialWorkers, user }: { initialT
   );
 }
 
-function Card({ t, onAnswer }: { t: Task; onAnswer: (id: string, text: string) => void }) {
+function WorkerCard({ w, busy }: { w: Worker; busy: number }) {
+  const alive = w.status !== "dead" && Date.now() - new Date(w.last_seen).getTime() < 60000;
+  const kind = (w.kind || "").toLowerCase();
+  return (
+    <li className={`card p-2.5 flex flex-col gap-2 ${alive ? "" : "opacity-60"}`}>
+      <div className="flex items-center gap-2.5">
+        <span className={`avatar ${kind}`}>{(w.name || "?").charAt(0).toUpperCase()}</span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2"><span className="font-semibold text-sm truncate">{w.name}</span><span className={`live-dot ${alive ? "" : "off"}`} /></div>
+          <div className="text-[11px] text-dim">{w.kind} · {alive ? (busy ? `working on ${busy}` : "idle") : "offline"} · {ago(w.last_seen)}</div>
+        </div>
+      </div>
+      {(w.capabilities || []).length > 0 && (
+        <div className="flex flex-wrap gap-1">{w.capabilities.map((c) => <span key={c} className="tag">{c}</span>)}</div>
+      )}
+    </li>
+  );
+}
+
+function Card({ t, onAnswer, onRemove }: { t: Task; onAnswer: (id: string, text: string) => void; onRemove: (id: string) => void }) {
   const [text, setText] = useState("");
   const dl = (t.deliverables || []).slice().sort((a, b) => (a.created_at < b.created_at ? -1 : 1));
   const summary = dl.find((d) => d.kind === "text");
   const files = dl.filter((d) => d.kind !== "text");
   const question = t.status === "needs-human" ? (t.events || []).filter((e) => e.kind === "needs-human").pop() : null;
+  const mood = t.status === "needs-human" ? "ask" : t.status === "claimed" || t.status === "running" ? "working" : "";
+  const workerKind = (t.worker?.kind || "").toLowerCase();
   return (
-    <article className="rounded-lg border border-line bg-card p-3">
+    <article className={`group card p-3 fade-in ${mood}`}>
       <div className="flex items-start gap-2">
-        <h3 className="font-semibold text-sm flex-1 min-w-0 break-words">{t.title}</h3>
+        <h3 className="font-semibold text-sm flex-1 min-w-0 break-words leading-snug">{t.title}</h3>
         <span className={`pill ${t.status}`}>{t.status}</span>
+        <button className="text-dim hover:text-bad opacity-0 group-hover:opacity-100 text-xs leading-none -mr-1 mt-0.5 transition-opacity" title="Remove task" onClick={() => onRemove(t.id)}>✕</button>
       </div>
-      <p className="text-[11px] text-dim mt-1">{[t.worker?.name || (t.status === "open" ? "waiting for a worker" : ""), t.source_app, ago(t.created_at)].filter(Boolean).join(" · ")}</p>
+      <div className="flex items-center gap-2 mt-1.5 text-[11px] text-dim">
+        {t.worker
+          ? <span className="inline-flex items-center gap-1.5"><span className={`avatar ${workerKind} !w-4 !h-4 !text-[9px]`}>{t.worker.name.charAt(0).toUpperCase()}</span>{t.worker.name}</span>
+          : t.status === "open" ? <span>waiting for a worker</span> : null}
+        {t.source_app && <span>· {t.source_app}</span>}
+        <span>· {ago(t.created_at)}</span>
+      </div>
       {t.context && t.context !== t.title && <p className="text-xs text-[#b8b8bc] mt-2 whitespace-pre-wrap break-words line-clamp-3">{t.context}</p>}
-      {t.crop_url && <a href={t.crop_url} target="_blank" rel="noreferrer"><img src={t.crop_url} alt="" className="mt-2 rounded-md border border-line max-h-32 object-cover" /></a>}
-      {summary && <p className="mt-2 p-2 rounded-md bg-[#111] border border-[#262628] text-xs whitespace-pre-wrap break-words">{summary.body}</p>}
+      {t.crop_url && <a href={t.crop_url} target="_blank" rel="noreferrer"><img src={t.crop_url} alt="" className="mt-2 rounded-md border border-line max-h-32 w-full object-cover" /></a>}
+      {(t.attachments || []).length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {t.attachments.map((a, i) => (
+            <a key={i} className="chip" href={a.url} target="_blank" rel="noreferrer" title={a.url}>{a.kind === "link" ? "🔗" : a.kind === "folder" ? "🗂" : a.mime?.startsWith("image/") ? "🖼" : "📎"} <span className="truncate">{a.name}</span></a>
+          ))}
+        </div>
+      )}
+      {summary && <p className="mt-2 p-2.5 rounded-lg bg-[#101012] border border-line text-xs leading-relaxed whitespace-pre-wrap break-words">{summary.body}</p>}
       {files.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mt-2">
           {files.map((d) => (
@@ -182,8 +225,8 @@ function Card({ t, onAnswer }: { t: Task; onAnswer: (id: string, text: string) =
         </div>
       )}
       {question && (
-        <div className="mt-2 p-2 rounded-md border border-ask/40 bg-ask/10">
-          <p className="text-xs text-[#cfe0ff] mb-1.5">{String((question.payload as { question?: string })?.question || "The worker needs your input.")}</p>
+        <div className="mt-2 p-2.5 rounded-lg border border-ask/40 bg-ask/10">
+          <p className="text-xs text-[#cfe0ff] mb-2 leading-relaxed">{String((question.payload as { question?: string })?.question || "The worker needs your input.")}</p>
           <div className="flex gap-1.5">
             <input className="input text-xs" placeholder="Answer…" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { onAnswer(t.id, text); setText(""); } }} />
             <button className="btn text-xs" onClick={() => { onAnswer(t.id, text); setText(""); }}>Send</button>
