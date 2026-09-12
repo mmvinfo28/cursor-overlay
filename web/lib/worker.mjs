@@ -36,15 +36,30 @@ export function parseOutput(raw) {
   if (value.question && typeof value.question === 'string') return { question: value.question.slice(0, 2000) };
   if (typeof value.summary !== 'string' || !value.summary.trim() || !Array.isArray(value.files) || !value.files.length || value.files.length > 8) throw new Error('Model returned no complete deliverable');
   const names = new Set(); let total = 0;
-  const files = value.files.map(file => {
-    if (typeof file.name !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,119}\.(md|txt|csv|json|html|css|js|ts|py|sql|svg)$/i.test(file.name) || names.has(file.name.toLowerCase())) throw new Error('Invalid or duplicate output filename');
+  const files = value.files.map((file, i) => {
     if (typeof file.content !== 'string' || !file.content.trim()) throw new Error('Empty deliverable');
-    names.add(file.name.toLowerCase()); total += Buffer.byteLength(file.content);
+    // Models name files freely ("Assignment answers (final).docx", "notes"): keep the intent, make it safe.
+    // Only text is produced here, so anything not in the text set becomes .md.
+    let name = safeFilename(file.name, i);
+    let base = name, n = 2;
+    while (names.has(name.toLowerCase())) name = base.replace(/(\.[a-z0-9]+)$/i, `-${n++}$1`);
+    names.add(name.toLowerCase()); total += Buffer.byteLength(file.content);
     if (total > 1024 * 1024) throw new Error('Output too large');
     // Serve executable-looking text as downloads, never as active HTML/SVG.
-    return { name: file.name, content: file.content, mime: file.name.endsWith('.md') ? 'text/markdown' : 'text/plain' };
+    return { name, content: file.content, mime: name.endsWith('.md') ? 'text/markdown' : 'text/plain' };
   });
   return { summary: value.summary.slice(0, 4000), files };
+}
+
+const TEXT_EXT = new Set(['md', 'txt', 'csv', 'json', 'html', 'css', 'js', 'ts', 'py', 'sql', 'svg', 'yaml', 'yml', 'xml', 'tsv']);
+export function safeFilename(raw, i = 0) {
+  let name = String(raw ?? '').split(/[\\/]/).pop().trim();           // no paths, either separator
+  name = name.replace(/[^\w.\- ()]+/g, '-').replace(/\s+/g, ' ').replace(/^[.\-\s]+/, '').slice(0, 120);
+  if (!name) name = `result-${i + 1}.md`;
+  const m = name.match(/\.([a-z0-9]+)$/i);
+  if (!m) name += '.md';
+  else if (!TEXT_EXT.has(m[1].toLowerCase())) name = name.replace(/\.[a-z0-9]+$/i, '') + '.md';   // "report.docx" → "report.md": the content is text
+  return name;
 }
 
 export async function execute(task, answers, { env, extractPdf, fetcher = fetch, progress = async () => {} }) {

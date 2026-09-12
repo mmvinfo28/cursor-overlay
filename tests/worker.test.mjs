@@ -17,7 +17,10 @@ test('sources only come from the configured public storage; no local URLs or red
   await assert.rejects(download(`${origin}/storage/v1/object/public/attachments/a`, origin, async () => new Response('', { headers: { 'content-length': String(26 * 1024 * 1024) } })), NeedsHuman);
 });
 test('deliverables reject traversal, empty files, duplicate names and absent work', () => {
-  for (const files of [[], [{name:'../../out.txt', content:'x'}], [{name:'result.txt', content:''}], [{name:'a.txt',content:'x'}, {name:'A.txt',content:'y'}]]) assert.throws(() => parseOutput(JSON.stringify({summary:'done',files})));
+  for (const files of [[], [{name:'result.txt', content:''}]]) assert.throws(() => parseOutput(JSON.stringify({summary:'done',files})));
+  // free-form names are made safe instead of failing the task: paths stripped, non-text extensions become .md, duplicates suffixed
+  const out = parseOutput(JSON.stringify({summary:'done',files:[{name:'../../out.txt', content:'x'}, {name:'Assignment answers (final).docx', content:'y'}, {name:'a.txt',content:'x'}, {name:'A.txt',content:'y'}, {name:'', content:'z'}]}));
+  assert.deepEqual(out.files.map(f => f.name), ['out.txt', 'Assignment answers (final).md', 'a.txt', 'A-2.txt', 'result-5.md']);
   assert.deepEqual(parseOutput('{"question":"Please attach the report"}'), {question:'Please attach the report'});
 });
 test('PDF summary uses source content and produces the actual file', async () => {
