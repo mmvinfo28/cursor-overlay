@@ -80,8 +80,8 @@ test('late title preserves a user edit in the composer', () => {
   };
   const source = fs.readFileSync(path.join(__dirname, '../compose.html'), 'utf8').match(/<script>([\s\S]*?)<\/script>/)[1];
   vm.runInNewContext(source, {
-    require: () => ({ ipcRenderer: { on: (event, handler) => handlers.set(event, handler), send() {} } }),
-    document: { getElementById: element }, window: { addEventListener() {} },
+    require: name => name === './file-drop' ? { installFileDrop() {} } : ({ ipcRenderer: { on: (event, handler) => handlers.set(event, handler), send() {} } }),
+    document: { getElementById: element, querySelectorAll: () => [] }, window: { addEventListener() {} },
   });
   handlers.get('compose-open')(null, { title: 'Local title' });
   handlers.get('compose-title')(null, { title: 'Model title' });

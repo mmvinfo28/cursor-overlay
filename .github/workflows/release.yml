@@ -12,6 +12,7 @@ on:
       - "crew.js"
       - "llm.js"
       - "zipdir.js"
+      - "file-drop.js"
       - "compose.html"
       - "overlay.html"
       - "feed.html"

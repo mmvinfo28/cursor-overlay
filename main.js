@@ -366,7 +366,7 @@ function createFeed() {
 // ---- composer: small focusable window at the cursor. Enter/Send → crew.send, Esc → nothing happens ----
 function createCompose() {
   compose = new BrowserWindow({
-    width: 480, height: 400, show: false, frame: false, transparent: true, alwaysOnTop: true, skipTaskbar: true,
+    width: 480, height: 520, show: false, frame: false, transparent: true, alwaysOnTop: true, skipTaskbar: true,
     resizable: false, minimizable: false, maximizable: false, hasShadow: true,
     webPreferences: { nodeIntegration: true, contextIsolation: false }
   });
@@ -390,20 +390,53 @@ function openCompose({ title, context, app, cropPng }) {
 }
 function closeCompose() { composing = false; pendingTask = null; if (compose && compose.isVisible()) compose.hide(); }
 
+async function attachFiles(paths, draft = pendingTask) {
+  if (!draft || draft !== pendingTask || draft.sending) return;
+  if (!Array.isArray(paths) || paths.some(file => typeof file !== 'string' || !path.isAbsolute(file))) throw new Error('Invalid file selection');
+  draft.loading = (draft.loading || 0) + 1;
+  compose.webContents.send('compose-busy', true);
+  const errors = [];
+  try {
+    if (paths.length > 20) errors.push('Only the first 20 files were added.');
+    for (const file of [...new Set(paths)].slice(0, 20)) {
+      if (draft !== pendingTask) break;
+      try {
+        const stat = await fs.promises.stat(file);
+        if (!stat.isFile()) throw new Error('Use the Folder button to attach a folder');
+        if (stat.size > 25 * 1024 * 1024) throw new Error('File exceeds 25 MB');
+        const bytes = await fs.promises.readFile(file);
+        if (bytes.length > 25 * 1024 * 1024) throw new Error('File exceeds 25 MB');
+        const mime = { '.png':'image/png', '.jpg':'image/jpeg', '.jpeg':'image/jpeg', '.webp':'image/webp', '.pdf':'application/pdf', '.csv':'text/csv', '.txt':'text/plain', '.md':'text/markdown', '.json':'application/json', '.xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }[path.extname(file).toLowerCase()] || 'application/octet-stream';
+        if (draft === pendingTask) compose.webContents.send('compose-attach', { name: path.basename(file), mime, size: bytes.length, base64: bytes.toString('base64'), localPath: file });
+      } catch (error) { errors.push(`${path.basename(file)}: ${error.message}`); }
+    }
+  } finally {
+    draft.loading--;
+    if (draft === pendingTask) {
+      if (errors.length) compose.webContents.send('compose-error', errors.join('\n'));
+      compose.webContents.send('compose-busy', draft.loading > 0);
+    }
+  }
+}
+
+async function composeFromFeed({ title = '', paths = [] } = {}) {
+  if (pendingTask?.sending) throw new Error('Wait for the current task to finish sending.');
+  const opened = !composing;
+  if (opened) openCompose({ title: String(title).slice(0, 120), context: '', app: 'Crewboard' });
+  else { compose.show(); compose.focus(); }
+  await attachFiles(paths);
+  return { opened };
+}
+
 // "Add context from…" — each source answers with text (appended to context) or an attachment
 async function composeAdd(kind) {
-  const reply = a => compose.webContents.send('compose-attach', a);
+  const draft = pendingTask;
+  if (!draft || draft.sending) return;
+  const reply = a => { if (draft === pendingTask) compose.webContents.send('compose-attach', a); };
   if (kind === 'file') {
     const r = await dialog.showOpenDialog(compose, { properties: ['openFile', 'multiSelections'] });
-    for (const f of r.filePaths || []) {
-      const st = fs.statSync(f);
-      if (st.size > 25 * 1024 * 1024) { toastAtCursor({ text: `✗ ${path.basename(f)} is over 25 MB`, kind: 'fail' }); continue; }
-      const ext = path.extname(f).toLowerCase();
-      const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.pdf': 'application/pdf', '.csv': 'text/csv', '.txt': 'text/plain', '.md': 'text/markdown', '.json': 'application/json',
-        '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }[ext] || 'application/octet-stream';
-      reply({ name: path.basename(f), mime, size: st.size, base64: fs.readFileSync(f).toString('base64') });
-    }
-    compose.focus();
+    await attachFiles(r.filePaths || [], draft);
+    if (draft === pendingTask) compose.focus();
   } else if (kind === 'folder') {
     const r = await dialog.showOpenDialog(compose, { properties: ['openDirectory'] });
     const dir = r.filePaths && r.filePaths[0];
@@ -602,6 +635,14 @@ app.whenReady().then(() => {
   ipcMain.handle('choose-results-dir', () => chooseResultsDir());
   ipcMain.handle('local-files', () => resultsSync ? resultsSync.localFiles() : {});
   ipcMain.on('feed-hide', () => feed.hide());
+  ipcMain.handle('feed-compose', (event, payload) => {
+    if (event.sender !== feed.webContents) throw new Error('Invalid composer source');
+    return composeFromFeed(payload);
+  });
+  ipcMain.handle('compose-files', (event, paths) => {
+    if (event.sender !== compose.webContents) throw new Error('Invalid attachment source');
+    return attachFiles(paths);
+  });
   ipcMain.on('open-results-dir', () => { if (resultsSync) shell.openPath(resultsSync.dir); });
   globalShortcut.register('CommandOrControl+Shift+C', () => toggleFeed(true));
 
@@ -610,12 +651,20 @@ app.whenReady().then(() => {
   ipcMain.on('cancel', cancelSelect);
 
   ipcMain.on('compose-add', (_, kind) => composeAdd(kind).catch(e => { log('compose add failed', kind, e.message); }));
-  ipcMain.on('compose-cancel', () => { log('compose cancel'); closeCompose(); });
-  ipcMain.on('compose-send', (_, { title, context, attachments }) => {
-    const app = pendingTask && pendingTask.app;
-    closeCompose();
-    crew.send({ title, context, app, attachments })
-      .catch(e => { log('SEND FAIL', e.message); toastAtCursor({ text: `✗ could not send: ${e.message}`, kind: 'fail' }); });
+  ipcMain.on('compose-cancel', () => { if (pendingTask?.sending) return; log('compose cancel'); closeCompose(); });
+  ipcMain.on('compose-send', async (event, { title, context, attachments }) => {
+    const draft = pendingTask;
+    if (event.sender !== compose.webContents || !draft || draft.sending) return;
+    if (draft.loading) { compose.webContents.send('compose-error', 'Wait until the files have finished loading.'); return; }
+    if (!String(title || '').trim()) { compose.webContents.send('compose-error', 'Enter a task title.'); return; }
+    draft.sending = true;
+    try {
+      await crew.send({ title, context, app: draft.app, attachments });
+      if (draft === pendingTask) closeCompose();
+    } catch (e) {
+      log('SEND FAIL', e.message);
+      if (draft === pendingTask) compose.webContents.send('compose-error', `Could not send: ${e.message}. Your draft has been kept.`);
+    } finally { draft.sending = false; }
   });
 
   if (process.argv.includes('--selftest')) {

@@ -29,6 +29,7 @@
       "crew.js",
       "llm.js",
       "zipdir.js",
+      "file-drop.js",
       "overlay.html",
       "feed.html",
       "compose.html",

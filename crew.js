@@ -113,7 +113,7 @@ function create({ cfg, log, onToast, onProposal, onLateTitle, onSent, onUpdate }
       body.attachments = [];
       for (const a of attachments) {
         try { body.attachments.push(await upload(a)); }
-        catch (e) { log('attachment failed', a.name, e.message); onToast({ text: `✗ ${a.name}: ${e.message}`, kind: 'fail' }); }
+        catch (e) { log('attachment failed', a.name, e.message); throw new Error(`${a.name}: ${e.message}`); }
       }
     }
     const r = await fetch(`${api}/api/task`, { method: 'POST', headers, body: JSON.stringify(body) });

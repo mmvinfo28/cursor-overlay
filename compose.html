@@ -5,6 +5,7 @@
   :root { --amber:#E9A23B; --bg:#161618; --card:#1e1e21; --line:#2c2c30; --txt:#e6e6e6; --dim:#8a8a90; }
   html, body { margin:0; height:100%; background:var(--bg); color:var(--txt); font:13px/1.45 system-ui, Segoe UI, sans-serif; overflow:hidden; }
   * { box-sizing:border-box; }
+  body.file-drag::after { content:'Drop files to attach'; position:fixed; inset:6px; z-index:100; display:grid; place-items:center; border:2px dashed var(--amber); border-radius:10px; background:rgba(20,20,22,.94); color:var(--amber); font-size:17px; pointer-events:none; }
   #wrap { display:flex; flex-direction:column; height:100%; border:1px solid rgba(233,162,59,.55); border-radius:12px; overflow:hidden; }
   #hd { display:flex; align-items:center; gap:8px; padding:9px 12px; border-bottom:1px solid var(--line); -webkit-app-region:drag; user-select:none; }
   #hd .ring { width:12px; height:12px; border-radius:50%; border:2px solid var(--amber); background:rgba(233,162,59,.22); }
@@ -21,7 +22,9 @@
   #srcs { display:flex; flex-wrap:wrap; gap:5px; }
   #srcs button { background:#0f0f11; border:1px solid var(--line); color:#ddd; padding:4px 9px; border-radius:7px; font:inherit; font-size:12px; cursor:pointer; }
   #srcs button:hover { border-color:var(--amber); }
-  #att { display:flex; flex-wrap:wrap; gap:5px; }
+  #att { display:flex; flex-wrap:wrap; gap:5px; max-height:76px; overflow:auto; flex-shrink:0; }
+  #error { color:#f29b91; font-size:12px; max-height:44px; overflow:auto; }
+  #error:empty { display:none; }
   #att:empty { display:none; }
   .chip { display:inline-flex; align-items:center; gap:6px; background:#0f0f11; border:1px solid var(--line); padding:3px 8px; border-radius:7px; font-size:12px; max-width:100%; }
   .chip img { width:22px; height:22px; object-fit:cover; border-radius:4px; }
@@ -44,7 +47,7 @@
     <input id="title" placeholder="What should the crew do?" />
     <div class="lbl">Context</div>
     <textarea id="ctx" placeholder="What the crew needs to know…"></textarea>
-    <div class="lbl">Add context from</div>
+    <div class="lbl">Drop files here, or add context from</div>
     <div id="srcs">
       <button data-k="file">📎 File</button>
       <button data-k="folder">🗂 Folder</button>
@@ -55,6 +58,7 @@
       <button data-k="link">🔗 Link</button>
     </div>
     <div id="att"></div>
+    <div id="error" role="alert"></div>
   </div>
   <div id="ft"><span class="hint"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> or <kbd>⇧⇧</kbd> send · <kbd>Esc</kbd> cancel</span><span class="sp"></span><button id="cancel">Cancel</button><button id="send">Send to crew</button></div>
 </div>
@@ -63,14 +67,28 @@
   const $ = id => document.getElementById(id);
   let attachments = [];      // { id, name, mime, size, base64?, url?, thumb? }
   let seq = 0;
+  let busy = false, sending = false;
+  const esc = value => String(value ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+  const showError = error => { $('error').textContent = error.message || String(error); };
+  function syncButtons() {
+    $('send').disabled = busy || sending;
+    $('send').textContent = sending ? 'Sending…' : busy ? 'Adding files…' : 'Send to crew';
+    $('cancel').disabled = $('close').disabled = sending;
+    $('title').disabled = $('ctx').disabled = sending;
+    document.querySelectorAll('#srcs button').forEach(button => { button.disabled = sending; });
+  }
+  require('./file-drop').installFileDrop(document, paths => {
+    if (sending) return;
+    return ipcRenderer.invoke('compose-files', paths);
+  }, showError);
 
   function renderAtt() {
     $('att').innerHTML = '';
     for (const a of attachments) {
       const el = document.createElement('span');
       el.className = 'chip';
-      el.innerHTML = `${a.thumb ? `<img src="${a.thumb}">` : a.mime && a.mime.startsWith('image/') ? '🖼' : a.kind === 'link' ? '🔗' : a.kind === 'folder' ? '🗂' : '📎'} <span title="${a.name}">${a.name}</span>${a.size ? `<b>${(a.size / 1024).toFixed(0)} KB</b>` : ''}<span class="x" title="remove">✕</span>`;
-      el.querySelector('.x').onclick = () => { attachments = attachments.filter(x => x.id !== a.id); renderAtt(); };
+      el.innerHTML = `${a.thumb ? `<img src="${esc(a.thumb)}">` : a.mime && a.mime.startsWith('image/') ? '🖼' : a.kind === 'link' ? '🔗' : a.kind === 'folder' ? '🗂' : '📎'} <span title="${esc(a.name)}">${esc(a.name)}</span>${a.size ? `<b>${(a.size / 1024).toFixed(0)} KB</b>` : ''}<span class="x" title="remove">✕</span>`;
+      el.querySelector('.x').onclick = () => { if (sending) return; attachments = attachments.filter(x => x.id !== a.id); renderAtt(); };
       $('att').appendChild(el);
     }
   }
@@ -78,13 +96,15 @@
   let initialTitle = '';
   ipcRenderer.on('compose-open', (_, p) => {
     attachments = [];
+    busy = sending = false;
+    $('error').textContent = '';
     initialTitle = p.title || '';
     $('title').value = p.title || '';
     $('ctx').value = p.context || '';
     $('app').textContent = p.app ? 'from ' + p.app : '';
     if (p.crop) attachments.push({ id: ++seq, name: 'cursor-crop.png', mime: 'image/png', size: p.crop.size, base64: p.crop.base64, thumb: 'data:image/png;base64,' + p.crop.base64 });
     renderAtt();
-    $('send').disabled = false;
+    syncButtons();
     ($('title').value ? $('ctx') : $('title')).focus();
   });
 
@@ -96,9 +116,13 @@
   // main.js answers add requests with one of: {text} appended to context, or an attachment
   ipcRenderer.on('compose-attach', (_, a) => {
     if (a.text) { const c = $('ctx'); c.value = (c.value.trim() ? c.value.trimEnd() + '\n\n' : '') + a.text; c.focus(); return; }
+    if (a.localPath && attachments.some(item => item.localPath === a.localPath)) return;
+    if (attachments.length >= 20) return showError('A task can contain at most 20 attachments.');
     attachments.push({ id: ++seq, ...a, thumb: a.mime && a.mime.startsWith('image/') && a.base64 ? 'data:' + a.mime + ';base64,' + a.base64 : null });
     renderAtt();
   });
+  ipcRenderer.on('compose-busy', (_, value) => { busy = value; syncButtons(); });
+  ipcRenderer.on('compose-error', (_, message) => { sending = false; showError(message); syncButtons(); });
 
   $('srcs').addEventListener('click', e => {
     const k = e.target.closest('button') && e.target.closest('button').dataset.k;
@@ -112,17 +136,18 @@
   });
 
   function send() {
+    if (busy || sending) return;
     const title = $('title').value.trim();
     if (!title) return $('title').focus();
-    $('send').disabled = true;
-    ipcRenderer.send('compose-send', { title, context: $('ctx').value.trim(), attachments: attachments.map(({ thumb, id, ...a }) => a) });
+    sending = true; $('error').textContent = ''; syncButtons();
+    ipcRenderer.send('compose-send', { title, context: $('ctx').value.trim(), attachments: attachments.map(({ thumb, id, localPath, ...a }) => a) });
   }
   ipcRenderer.on('compose-send-now', send);
   $('send').onclick = send;
   $('cancel').onclick = () => ipcRenderer.send('compose-cancel');
   $('close').onclick = () => ipcRenderer.send('compose-cancel');
   window.addEventListener('keydown', e => {
-    if (e.key === 'Escape') ipcRenderer.send('compose-cancel');
+    if (e.key === 'Escape' && !sending) ipcRenderer.send('compose-cancel');
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) send();
     if (e.key === 'Enter' && e.target.id === 'title') { e.preventDefault(); $('ctx').focus(); }
   });

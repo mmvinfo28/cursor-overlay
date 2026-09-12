@@ -5,6 +5,7 @@
   :root { --amber:#E9A23B; --bg:#141416; --card:#1c1c1f; --line:#2a2a2e; --txt:#e6e6e6; --dim:#8a8a90; }
   html, body { margin:0; height:100%; background:var(--bg); color:var(--txt); font:13px/1.45 system-ui, Segoe UI, sans-serif; overflow:hidden; }
   * { box-sizing:border-box; }
+  body.file-drag::after { content:'Drop files to add context'; position:fixed; inset:6px; z-index:100; display:grid; place-items:center; border:2px dashed var(--amber); border-radius:10px; background:rgba(20,20,22,.94); color:var(--amber); font-size:17px; pointer-events:none; }
 
   /* frameless window: header is the drag handle */
   #hd { display:flex; align-items:center; gap:10px; padding:10px 12px 10px 14px; border-bottom:1px solid var(--line); -webkit-app-region:drag; user-select:none; }
@@ -92,8 +93,8 @@
     <button id="hide" title="Hide (Ctrl+Shift+C)">✕</button>
   </div>
   <div id="new">
-    <input id="q" placeholder="What should the crew do?  (Enter)" />
-    <button id="go">Add</button>
+    <input id="q" placeholder="New task… or drop files here" />
+    <button id="go" title="Add a task with context and files">Add</button>
   </div>
   <div id="tabs">
     <button id="tab-tasks" class="on">Tasks<span class="n" id="n-tasks"></span></button>
@@ -166,17 +167,16 @@
 
     const h = () => ({ apikey: cfg.anonKey, Authorization: `Bearer ${cfg.anonKey}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' });
 
-    async function addTask() {
+    async function addTask(paths = []) {
       const q = document.getElementById('q');
       const title = q.value.trim();
-      if (!title || !cfg) return;
-      q.value = '';
-      await fetch(`${cfg.supabaseUrl}/rest/v1/tasks`, { method: 'POST', headers: h(),
-        body: JSON.stringify({ title: title.slice(0, 120), context: title, source_app: 'Crewboard', created_by: cfg.user || 'overlay' }) });
-      load();
+      const result = await ipcRenderer.invoke('feed-compose', { title: title.slice(0, 120), paths });
+      if (result.opened && q.value.trim() === title) q.value = '';
     }
-    document.getElementById('go').onclick = addTask;
-    document.getElementById('q').addEventListener('keydown', e => { if (e.key === 'Enter') addTask(); });
+    const addError = e => { st.textContent = e.message || 'Could not open task'; st.classList.add('off'); };
+    document.getElementById('go').onclick = () => addTask().catch(addError);
+    document.getElementById('q').addEventListener('keydown', e => { if (e.key === 'Enter') addTask().catch(addError); });
+    require('./file-drop').installFileDrop(document, addTask, addError);
 
     async function answer(taskId, text) {
       if (!text.trim()) return;
