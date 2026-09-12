@@ -41,6 +41,9 @@ async function save(cfg, d, log) {
       if (!r.ok) throw new Error(`download ${r.status} ${d.url}`);
       fs.writeFileSync(file, Buffer.from(await r.arrayBuffer()));
     }
+  } else if (d.kind === 'pr' && d.url && process.platform === 'darwin') {
+    file = path.join(dir, safe + '.webloc');                    // Finder link, double-click opens the PR
+    fs.writeFileSync(file, ['<?xml version="1.0" encoding="UTF-8"?>', '<plist version="1.0"><dict><key>URL</key><string>' + d.url + '</string></dict></plist>', ''].join(os.EOL));
   } else if (d.kind === 'pr' && d.url) {
     file = path.join(dir, safe + '.url');                       // Windows internet shortcut, double-click opens the PR
     fs.writeFileSync(file, `[InternetShortcut]\r\nURL=${d.url}\r\n`);

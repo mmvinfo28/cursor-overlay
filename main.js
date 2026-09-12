@@ -1,5 +1,6 @@
 const { app, BrowserWindow, Tray, Menu, nativeImage, shell, screen, globalShortcut, desktopCapturer, ipcMain, clipboard } = require('electron');
 const { spawn } = require('child_process');
+const { autoUpdater } = require('electron-updater');
 const results = require('./results');
 const fs = require('fs');
 const os = require('os');
@@ -12,6 +13,7 @@ let showPanel = process.argv.includes('--panel');      // the live field-text pa
 // installed: user files live in %APPDATA%\Crewboard, helpers are unpacked next to the asar.
 // dev: everything sits in the repo folder, as before.
 const USER_DIR = app.isPackaged ? app.getPath('userData') : __dirname;
+const WIN = process.platform === 'win32';
 const HELPER_DIR = path.join(__dirname.replace('app.asar', 'app.asar.unpacked'), 'helpers', 'win');
 const CAPTURE_DIR = path.join(USER_DIR, 'captures');
 const CONFIG_FILE = path.join(USER_DIR, 'config.json');
@@ -78,6 +80,7 @@ function createOverlay() {
 
   win.setIgnoreMouseEvents(true, { forward: true });
   win.setAlwaysOnTop(true, 'screen-saver');
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   win.loadFile('overlay.html');
   win.webContents.on('render-process-gone', (_, d) => log('RENDERER GONE', d));
   win.webContents.on('unresponsive', () => log('RENDERER UNRESPONSIVE'));
@@ -115,6 +118,7 @@ function spawnPs(script, onLine) {
 }
 
 function startHelpers() {
+  if (!WIN) return log('helpers: not on', process.platform, '- capture/field reader off, feed + results sync on');
   helper = spawnPs('keyhelper.ps1', line => {
     if (line === 'ready') return log('key helper ready');
     const resolve = helperQueue.shift();
@@ -312,11 +316,31 @@ function createTray() {
     { type: 'separator' },
     { label: 'Show field reader (debug)', type: 'checkbox', checked: showPanel, enabled: READER,
       click: m => { showPanel = m.checked; if (!showPanel) win.webContents.send('field-hide'); } },
-    { label: 'Start with Windows', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin,
+    { label: WIN ? 'Start with Windows' : 'Start at login', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin,
       click: m => app.setLoginItemSettings({ openAtLogin: m.checked }) },
+    { label: `Check for updates (v${app.getVersion()})`, enabled: app.isPackaged,
+      click: () => autoUpdater.checkForUpdates().then(r => { if (!r || !r.updateInfo || r.updateInfo.version === app.getVersion()) { const p = screen.getCursorScreenPoint(); win.webContents.send('toast', { text: `Crewboard v${app.getVersion()} is up to date`, x: p.x, y: p.y }); } }).catch(e => log('update check failed', e.message)) },
+    { label: 'Restart to update', click: () => { app.quitting = true; autoUpdater.quitAndInstall(); } },
+    { type: 'separator' },
     { label: 'Quit', click: () => { app.quitting = true; app.quit(); } }
   ]));
   tray.on('click', () => toggleFeed(false));
+}
+
+// ---- auto-update: GitHub Releases. Checks at start and hourly; installs silently on quit ----
+function startUpdater() {
+  if (!app.isPackaged) return;
+  autoUpdater.logger = { info: (...a) => log('update', ...a), warn: (...a) => log('update warn', ...a), error: (...a) => log('update error', ...a), debug: () => {} };
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on('update-downloaded', info => {
+    const p = screen.getCursorScreenPoint();
+    win.webContents.send('toast', { text: `Crewboard ${info.version} ready — restart from the tray to update`, x: p.x, y: p.y });
+    if (tray) tray.setToolTip(`Crewboard — update ${info.version} ready`);
+  });
+  const check = () => autoUpdater.checkForUpdates().catch(e => log('update check failed', e.message));
+  setTimeout(check, 10000);
+  setInterval(check, 60 * 60 * 1000);
 }
 
 // first run of the installed app: seed config.json from the bundled default
@@ -335,10 +359,12 @@ app.on('second-instance', () => { if (feed) toggleFeed(true); });
 
 app.whenReady().then(() => {
   ensureConfig();
+  if (process.platform === 'darwin' && app.dock) app.dock.hide();  // tray app, no dock icon
   createOverlay();
   createFeed();
   createTray();
   startHelpers();
+  startUpdater();
   if (app.isPackaged && !process.argv.includes('--no-autostart')) app.setLoginItemSettings({ openAtLogin: true });
 
   // finished deliverables land in OneDrive/Desktop/Crewboard, announce themselves at the cursor, refresh the feed
@@ -358,7 +384,7 @@ app.whenReady().then(() => {
   ipcMain.handle('local-files', () => resultsSync ? resultsSync.localFiles() : {});
   ipcMain.on('feed-hide', () => feed.hide());
   ipcMain.on('open-results-dir', () => { if (resultsSync) shell.openPath(resultsSync.dir); });
-  globalShortcut.register('Control+Shift+C', () => toggleFeed(true));
+  globalShortcut.register('CommandOrControl+Shift+C', () => toggleFeed(true));
 
   globalShortcut.register('Control+Shift+Space', onHotkey);   // fallback if the Shift hook is unavailable
   ipcMain.on('region', (_, rect) => {

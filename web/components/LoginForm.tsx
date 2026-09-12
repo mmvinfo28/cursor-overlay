@@ -29,6 +29,12 @@ function Login({ auth0 }: { auth0: boolean }) {
     setMsg("Check your inbox to confirm the account, then sign in.");
   }
 
+  async function github() {
+    setBusy(true); setMsg(null);
+    const { error } = await supabase.auth.signInWithOAuth({ provider: "github", options: { redirectTo: `${location.origin}/supabase/callback` } });
+    if (error) { setBusy(false); setMsg(error.message); }
+  }
+
   async function magicLink() {
     if (!email) return setMsg("Email first.");
     setBusy(true); setMsg(null);
@@ -45,16 +51,13 @@ function Login({ auth0 }: { auth0: boolean }) {
           <h1 className="text-lg font-semibold">Crewboard</h1>
         </div>
         <p className="text-sm text-dim">Sign in to see what the crew is doing for you.</p>
-        {auth0 && (
-          <>
-            <a href="/auth/login" className="btn-primary block text-center">Continue with Auth0</a>
-            <div className="flex items-center gap-3 text-[11px] text-dim"><span className="flex-1 border-t border-line" />or email<span className="flex-1 border-t border-line" /></div>
-          </>
-        )}
+        <button type="button" className="btn-primary w-full" onClick={github} disabled={busy}>Continue with GitHub</button>
+        {auth0 && <a href="/auth/login" className="btn block text-center">Continue with Auth0</a>}
+        <div className="flex items-center gap-3 text-[11px] text-dim"><span className="flex-1 border-t border-line" />or email<span className="flex-1 border-t border-line" /></div>
         <input className="input" type="email" placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required />
         <input className="input" type="password" placeholder="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
         <div className="flex gap-2">
-          <button className="btn-primary flex-1" type="submit" disabled={busy}>Sign in</button>
+          <button className="btn flex-1" type="submit" disabled={busy}>Sign in</button>
           <button className="btn flex-1" type="button" onClick={signUp} disabled={busy}>Create account</button>
         </div>
         <button className="w-full text-xs text-dim hover:text-amber" type="button" onClick={magicLink} disabled={busy}>or email me a magic link</button>

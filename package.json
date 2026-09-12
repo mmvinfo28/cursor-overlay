@@ -9,7 +9,9 @@
   "scripts": {
     "start": "electron .",
     "reader": "electron . --reader",
-    "dist": "electron-builder --win nsis --publish never"
+    "dist": "electron-builder --win nsis --publish never",
+    "dist:mac": "electron-builder --mac dmg --publish never",
+    "release": "electron-builder --publish always"
   },
   "devDependencies": {
     "electron": "^32.0.0",
@@ -18,10 +20,70 @@
   "build": {
     "appId": "studio.mm.crewboard",
     "productName": "Crewboard",
-    "directories": { "output": "dist" },
-    "files": ["main.js", "results.js", "overlay.html", "feed.html", "icon.png", "config.default.json", "helpers/**"],
-    "asarUnpack": ["helpers/**"],
-    "win": { "target": [{ "target": "nsis", "arch": ["x64"] }], "icon": "icon.png" },
-    "nsis": { "oneClick": true, "perMachine": false, "runAfterFinish": true, "deleteAppDataOnUninstall": false }
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "results.js",
+      "overlay.html",
+      "feed.html",
+      "icon.png",
+      "config.default.json",
+      "helpers/**"
+    ],
+    "asarUnpack": [
+      "helpers/**"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "Crewboard-Setup-${version}.${ext}"
+    },
+    "artifactName": "Crewboard-Setup-${version}.${ext}",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "mmvinfo28",
+        "repo": "cursor-overlay",
+        "releaseType": "release"
+      }
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "icon": "icon.png",
+      "category": "public.app-category.productivity",
+      "extendInfo": {
+        "NSAppleEventsUsageDescription": "Crewboard reads the focused text field to propose actions.",
+        "NSAccessibilityUsageDescription": "Crewboard reads the focused text field and watches for double-tap Shift."
+      }
+    },
+    "dmg": {
+      "artifactName": "Crewboard-${version}-${arch}.${ext}"
+    }
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }

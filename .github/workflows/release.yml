@@ -1,0 +1,49 @@
+# Every push to main that touches the desktop app builds installers and publishes a GitHub Release.
+# Installed copies (Windows) pick the new version up via electron-updater within the hour.
+# Version = 0.1.<run number>: monotonic, no manual bumps.
+name: release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "main.js"
+      - "results.js"
+      - "overlay.html"
+      - "feed.html"
+      - "icon.png"
+      - "config.default.json"
+      - "helpers/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            args: --win nsis
+          - os: macos-latest
+            args: --mac dmg
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Stamp version 0.1.${{ github.run_number }}
+        run: npm version 0.1.${{ github.run_number }} --no-git-tag-version
+      - name: Build and publish
+        run: npx electron-builder ${{ matrix.args }} --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"   # unsigned builds; Gatekeeper: right-click > Open on Mac

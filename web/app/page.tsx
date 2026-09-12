@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
 import Board from "@/components/Board";
+import Landing from "@/components/Landing";
 import Shell from "@/components/Shell";
 import { getViewer } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const viewer = await getViewer();
-  if (!viewer) redirect("/login");
+  if (!viewer) return <Landing />;                      // public home; the board once signed in
   const supabase = await createClient();
 
   const [tasks, workers] = await Promise.all([
