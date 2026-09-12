@@ -75,8 +75,10 @@
     }
   }
 
+  let initialTitle = '';
   ipcRenderer.on('compose-open', (_, p) => {
     attachments = [];
+    initialTitle = p.title || '';
     $('title').value = p.title || '';
     $('ctx').value = p.context || '';
     $('app').textContent = p.app ? 'from ' + p.app : '';
@@ -84,6 +86,11 @@
     renderAtt();
     $('send').disabled = false;
     ($('title').value ? $('ctx') : $('title')).focus();
+  });
+
+  // the model answered after the composer opened: swap in its title unless the user already edited it
+  ipcRenderer.on('compose-title', (_, { title }) => {
+    if ($('title').value === initialTitle) { $('title').value = title; initialTitle = title; }
   });
 
   // main.js answers add requests with one of: {text} appended to context, or an attachment

@@ -34,7 +34,7 @@ let compose = null;              // "Create a task" composer: title, context, at
 let composing = false;
 let lastField = { app: null, text: '' };
 
-ipcMain.on('task-label-state', (_, active) => { taskLabelActive = active === true; });
+ipcMain.on('task-label-state', (_, active) => { taskLabelActive = active === true; log('pill', taskLabelActive ? 'on' : 'off'); });
 
 const PROMISE = /\b(i'?ll|i will|i'?m going to|i am going to|we'?ll|we will|we'?re going to|we are going to|send|sending|share|follow up|get back|remind|schedule|finish|complete|deliver|submit|upload|prepare|trimit|o s[ăa]|voi|promit|termin|rezolv|revin|amân|programez)\b/i;
 const DATE = /\b(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[.\/]\d{1,2}([.\/]\d{2,4})?|mon|tue|wed|thu|fri|sat|sun|today|tomorrow|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec|luni|mar[țt]i|miercuri|joi|vineri|s[âa]mb[ăa]t[ăa]|duminic[ăa]|azi|m[âa]ine|poim[âa]ine|ianuarie|februarie|martie|aprilie|mai|iunie|iulie|august|septembrie|octombrie|noiembrie|decembrie)\b/i;
@@ -82,7 +82,7 @@ function createOverlay() {
     resizable: false,
     hasShadow: false,
     focusable: false,
-    webPreferences: { nodeIntegration: true, contextIsolation: false }
+    webPreferences: { nodeIntegration: true, contextIsolation: false, backgroundThrottling: false }   // never focused → Chromium would slow its timers
   });
 
   win.setIgnoreMouseEvents(true, { forward: true });
@@ -154,6 +154,7 @@ function onFieldLine(line) {
   const { pass, signals } = localFilter(f.text || '');
   const signalPass = f.changed === true && pass;
   log('field', f.app, f.type, `${f.len}ch`, f.src, f.changed ? 'changed' : 'baseline', signalPass ? 'PASS' : 'silent', signals.join(','));
+  if (/^(crewboard|electron)$/i.test(f.app || '')) return;      // reads from our own panel/composer: ignore
   lastField = { app: f.app, text: f.text || '' };
   if (signalPass && crew) crew.onField(f);
   if (!win.isDestroyed()) {
@@ -551,6 +552,7 @@ app.whenReady().then(() => {
     crew = crewmod.create({
       cfg, log, onToast: toastAtCursor,
       onProposal: ({ title }) => { taskLabelActive = true; if (!win.isDestroyed()) win.webContents.send('proposal', { title }); },
+      onLateTitle: ({ title }) => { if (composing && compose) compose.webContents.send('compose-title', { title }); },
       onSent: () => feed.webContents.send('refresh'), onUpdate: () => feed.webContents.send('refresh')
     });
     log('crew: api', crew.api, 'as', crew.who);

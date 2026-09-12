@@ -10,7 +10,7 @@ const PROPOSAL_TTL_MS = 6000;      // a proposal you ignore dies after this
 const TRACK_POLL_MS = 3000;
 const TRACK_MAX_MS = 30 * 60 * 1000;
 
-function create({ cfg, log, onToast, onProposal, onSent, onUpdate }) {
+function create({ cfg, log, onToast, onProposal, onLateTitle, onSent, onUpdate }) {
   const api = (cfg.apiBase || 'https://crewboard-web.vercel.app').replace(/\/$/, '');
   const who = cfg.user || `${os.userInfo().username}@${os.hostname()}`;
   const headers = { 'Content-Type': 'application/json' };
@@ -20,6 +20,7 @@ function create({ cfg, log, onToast, onProposal, onSent, onUpdate }) {
   let seq = 0;
   let proposal = null;             // { title, context, app, at }
   let lastText = '';
+  let confirmed = null;            // context text the user confirmed before the model answered
 
   // ---- propose ----
   function localTitle(text) {
@@ -41,7 +42,9 @@ function create({ cfg, log, onToast, onProposal, onSent, onUpdate }) {
   }
 
   // called on every field line that passed the local filter
+  const OWN = /^(crewboard|electron)$/i;                    // the composer / panel are ours, not something to propose on
   function onField(f) {
+    if (OWN.test(f.app || '')) return;
     const text = current(f.text);
     if (text.length < 8 || text === lastText) return;
     lastText = text;
@@ -59,7 +62,14 @@ function create({ cfg, log, onToast, onProposal, onSent, onUpdate }) {
         log('propose failed', proposer, e.message);
         if (cfg.localPropose !== false) out = { propose: true, title: localTitle(text), local: true };
       }
-      if (my !== seq || !out || !out.propose) return;
+      if (!out || !out.propose) return;
+      if (confirmed && confirmed === text) {                  // user already double-tapped on this text: update the composer
+        confirmed = null;
+        log('PROPOSE late', `(${out.provider || 'server'})`, out.title);
+        if (onLateTitle) onLateTitle({ title: out.title, context: text });
+        return;
+      }
+      if (my !== seq) return log('PROPOSE discarded (text changed)', out.title);
       proposal = { title: out.title, context: text, app: f.app, at: Date.now() };
       log('PROPOSE', out.local ? '(local)' : `(${out.provider || 'server'})`, out.title);
       onToast({ text: `↯ ${out.title}\nDouble-tap Shift to send to the crew`, kind: 'proposal', ttl: PROPOSAL_TTL_MS });
@@ -70,7 +80,8 @@ function create({ cfg, log, onToast, onProposal, onSent, onUpdate }) {
   function fromField(field) {
     const text = current(field && field.text);
     if (text.length < 4) return null;
-    return { title: localTitle(text), context: text, app: field.app, at: Date.now() };
+    confirmed = text;                                         // if the model answers in the next seconds, the composer gets its title
+    return { title: localTitle(text), context: text, app: field.app, at: Date.now(), local: true };
   }
 
   function takeProposal() {
