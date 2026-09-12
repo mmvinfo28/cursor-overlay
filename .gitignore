@@ -7,3 +7,4 @@ overlay.log
 .env*
 config.json
 dist/
+.auth0-mcp-writes.log

@@ -1,6 +1,7 @@
 import Link from "next/link";
+import type { Viewer } from "@/lib/session";
 
-export default function Shell({ email, active, children }: { email: string; active: "board" | "results"; children: React.ReactNode }) {
+export default function Shell({ viewer, active, children }: { viewer: Viewer; active: "board" | "results"; children: React.ReactNode }) {
   const tab = (href: string, key: string, label: string) => (
     <Link href={href} className={`px-3 py-1.5 rounded-lg text-sm ${active === key ? "bg-card text-white" : "text-dim hover:text-white"}`}>{label}</Link>
   );
@@ -13,10 +14,10 @@ export default function Shell({ email, active, children }: { email: string; acti
           {tab("/", "board", "Board")}
           {tab("/results", "results", "Results")}
         </nav>
-        <span className="ml-auto text-xs text-dim">{email}</span>
-        <form action="/auth/signout" method="post">
-          <button className="text-xs text-dim hover:text-amber" type="submit">sign out</button>
-        </form>
+        <span className="ml-auto text-xs text-dim">{viewer.name}</span>
+        {viewer.provider === "auth0"
+          ? <a href="/auth/logout" className="text-xs text-dim hover:text-amber">sign out</a>
+          : <form action="/supabase/signout" method="post"><button className="text-xs text-dim hover:text-amber" type="submit">sign out</button></form>}
       </header>
       <main className="flex-1 p-5">{children}</main>
     </div>

@@ -1,10 +1,18 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { auth0 } from "@/lib/auth0";
 
-// Refreshes the Supabase session cookie on every request and gates the dashboard behind login.
-// API routes are open: the desktop overlay calls them without a browser session.
+// Auth0 owns /auth/* (login, callback, logout) and refreshes its session cookie; Supabase refreshes its own.
+// The dashboard needs one of the two sessions. API routes are open: the desktop overlay has no browser session.
 export async function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl;
   let response = NextResponse.next({ request });
+  let auth0User = false;
+  if (auth0) {
+    response = await auth0.middleware(request);
+    if (pathname.startsWith("/auth/")) return response;
+    auth0User = !!(await auth0.getSession(request))?.user;
+  }
   const supabase = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
     cookies: {
       getAll: () => request.cookies.getAll(),
@@ -17,15 +25,15 @@ export async function proxy(request: NextRequest) {
   });
 
   const { data: { user } } = await supabase.auth.getUser();
-  const { pathname } = request.nextUrl;
-  const open = pathname.startsWith("/login") || pathname.startsWith("/auth") || pathname.startsWith("/api") || pathname.startsWith("/landing");
+  const signedIn = auth0User || !!user;
+  const open = pathname.startsWith("/login") || pathname.startsWith("/supabase") || pathname.startsWith("/api") || pathname.startsWith("/landing");
 
-  if (!user && !open) {
+  if (!signedIn && !open) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
   }
-  if (user && pathname.startsWith("/login")) {
+  if (signedIn && pathname.startsWith("/login")) {
     const url = request.nextUrl.clone();
     url.pathname = "/";
     return NextResponse.redirect(url);

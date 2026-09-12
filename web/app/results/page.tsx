@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import Shell from "@/components/Shell";
+import { getViewer } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
 import { ago, type Deliverable } from "@/lib/types";
 
@@ -9,9 +10,9 @@ type Row = Deliverable & { task: { id: string; title: string; source_app: string
 
 // The library: everything the crew ever produced, newest first.
 export default async function Results() {
+  const viewer = await getViewer();
+  if (!viewer) redirect("/login");
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
 
   const { data } = await supabase
     .from("deliverables")
@@ -21,7 +22,7 @@ export default async function Results() {
   const rows = (data ?? []) as unknown as Row[];
 
   return (
-    <Shell email={user.email ?? ""} active="results">
+    <Shell viewer={viewer} active="results">
       <div className="rounded-xl border border-line overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-[#111113] text-dim text-xs uppercase tracking-wide">
