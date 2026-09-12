@@ -50,7 +50,7 @@ function create({ cfg, log, onToast, onProposal, onSent, onUpdate }) {
       let out;
       try {
         out = await askServer(text, f.app);
-        if (!out.propose && out.reason === 'no OPENROUTER_API_KEY' && cfg.localPropose !== false) out = { propose: true, title: localTitle(text), local: true };
+        if (!out.propose && out.reason && cfg.localPropose !== false) { log('propose server:', out.reason, '- local title'); out = { propose: true, title: localTitle(text), local: true }; }
       } catch (e) {
         log('propose failed', e.message);
         if (cfg.localPropose !== false) out = { propose: true, title: localTitle(text), local: true };

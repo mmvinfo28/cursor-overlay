@@ -228,10 +228,8 @@ async function onHotkey() {
     taskLabelActive = false;
     log('task confirmed', p.title);
     if (!win.isDestroyed()) win.webContents.send('task-label-confirmed');
-    const c = screen.getCursorScreenPoint();
-    const crop = await captureRect(quickRect(c.x, c.y)).catch(e => { log('crop failed', e.message); return null; });
     win.webContents.send('fired');
-    return openCompose({ title: p.title, context: p.context, app: p.app, cropPng: crop && crop.toPNG() });
+    return openCompose({ title: p.title, context: p.context, app: p.app });
   }
   startSelect();
   const text = await grabSelectedText().catch(e => { log('text grab failed', e.message); return null; });
@@ -389,6 +387,13 @@ async function composeAdd(kind) {
   } else if (kind === 'field') {
     const t = (lastField.text || '').trim();
     if (t) reply({ text: t.slice(0, 4000) }); else toastAtCursor({ text: 'No text read from the last field', kind: 'fail' });
+  } else if (kind === 'cursor') {
+    compose.hide();
+    await sleep(150);
+    const c = screen.getCursorScreenPoint();
+    const crop = await captureRect(quickRect(c.x, c.y)).catch(e => { log('crop failed', e.message); return null; });
+    compose.show(); compose.focus();
+    if (crop) { const png = crop.toPNG(); reply({ name: `cursor-${Date.now()}.png`, mime: 'image/png', size: png.length, base64: png.toString('base64') }); }
   } else if (kind === 'region') {
     compose.hide();                                    // let the user drag on the overlay, then come back
     await sleep(150);
