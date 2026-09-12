@@ -291,6 +291,7 @@
     });
     // the model (or local fallback) named the task: the pill shows it and stays until the proposal expires
     ipcRenderer.on('proposal', (_, { title }) => {
+      if (body.classList.contains('select')) return;
       clearTimeout(taskLabelVisible);
       taskLabel.textContent = '↯ ' + title + '  ·  ⇧⇧ to send';
       taskLabel.classList.remove('confirmed');

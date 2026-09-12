@@ -214,8 +214,8 @@ function saveText(text) {
   win.webContents.send('toast', { text, x: p.x, y: p.y });
 }
 
-// Ctrl+Shift+Space: ring pops immediately; if the app had text selected that wins,
-// otherwise the user drags a rectangle (Esc / right-click cancels)
+// Accept a visible task suggestion, otherwise start a screenshot immediately.
+// Screenshot capture must not depend on the text reader or change the clipboard.
 async function onHotkey() {
   if (capturing) return log('capture already in progress');
   if (selecting) {
@@ -225,7 +225,7 @@ async function onHotkey() {
   // double-tap while the "Create a task" pill is up: the proposal (model title) or, if the model hasn't answered
   // yet, the current line itself becomes the task. The pill flips to "Task selected", crew.js sends it.
   if (composing) { compose.webContents.send('compose-send-now'); return; }   // second double-tap = send as is
-  const p = crew && (crew.takeProposal() || (taskLabelActive ? crew.fromField(lastField) : null));
+  const p = taskLabelActive && crew && (crew.takeProposal() || crew.fromField(lastField));
   if (p) {
     taskLabelActive = false;
     log('task confirmed', p.title);
@@ -234,21 +234,22 @@ async function onHotkey() {
     return openCompose({ title: p.title, context: p.context, app: p.app });
   }
   startSelect();
-  const text = await grabSelectedText().catch(e => { log('text grab failed', e.message); return null; });
-  if (text && selecting) {
-    endSelect();
-    saveText(text);
-    if (crew) openCompose({ title: text.replace(/\s+/g, ' ').trim().slice(0, 80), context: text, app: lastField.app });
-  }
 }
 
 function startSelect() {
   if (selecting) return;
   selecting = true;
+  taskLabelActive = false;
   log('select start');
+  // The passive cursor window is non-focusable. Make it an active input window
+  // while selecting so other foreground applications cannot receive the drag.
+  win.setFocusable(true);
   win.setIgnoreMouseEvents(false);
+  win.setAlwaysOnTop(true, 'screen-saver');
   globalShortcut.register('Escape', cancelSelect);
   win.webContents.send('select-start');
+  win.show();
+  win.focus();
 }
 
 function endSelect() {
@@ -258,6 +259,8 @@ function endSelect() {
   globalShortcut.unregister('Escape');
   win.setIgnoreMouseEvents(true, { forward: true });
   win.webContents.send('select-end');
+  win.blur();
+  win.setFocusable(false);
 }
 
 function cancelSelect() {
@@ -624,7 +627,10 @@ app.whenReady().then(() => {
   if (cfg) {
     crew = crewmod.create({
       cfg, log, onToast: toastAtCursor,
-      onProposal: ({ title }) => { taskLabelActive = true; if (!win.isDestroyed()) win.webContents.send('proposal', { title }); },
+      onProposal: ({ title }) => {
+        if (selecting || capturing || composing || win.isDestroyed()) return;
+        win.webContents.send('proposal', { title });
+      },
       onLateTitle: ({ title, context }) => { if (composing && compose && pendingTask?.context === context) compose.webContents.send('compose-title', { title }); },
       onSent: () => feed.webContents.send('refresh'), onUpdate: () => feed.webContents.send('refresh')
     });

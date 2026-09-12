@@ -20,21 +20,69 @@ function harness(capture) {
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8') + `
     log = () => {};
-    win = { setIgnoreMouseEvents: value => events.push(['ignore', value]), webContents: { send: (...args) => events.push(args) } };
+    win = {
+      setIgnoreMouseEvents: value => events.push(['ignore', value]),
+      setFocusable: value => events.push(['focusable', value]),
+      setAlwaysOnTop: (...args) => events.push(['top', ...args]),
+      show: () => events.push(['overlay-show']), focus: () => events.push(['overlay-focus']),
+      blur: () => events.push(['overlay-blur']), isDestroyed: () => false,
+      webContents: { send: (...args) => events.push(args) }
+    };
     compose = { show: () => events.push(['show']), focus() {}, webContents: { send: (...args) => events.push(args) } };
     crew = {};
+    grabSelectedText = async () => { events.push(['clipboard-copy']); return 'Selected text in another app'; };
     captureRect = capture;
     toastAtCursor = toast => events.push(['toast', toast]);
     openCompose = payload => events.push(['open', payload]);
     lastField = { app: 'Notepad', text: 'Context' };
     globalThis.api = {
       startSelect, cancelSelect, completeSelection, onHotkey,
+      proposal(visible) {
+        taskLabelActive = visible;
+        crew.takeProposal = () => { events.push(['take-proposal']); return { title: 'Old task', context: 'Promise', app: 'Notepad' }; };
+      },
       fromComposer() { composing = true; regionForCompose = true; startSelect(); },
       state() { return { selecting, capturing, regionForCompose }; }
     };
   `, context);
   return { api: context.api, events, shortcuts };
 }
+
+test('double Shift captures from an app without a text signal and does not copy its selection', async () => {
+  const { api, events } = harness();
+  await api.onHotkey();
+  assert.equal(api.state().selecting, true);
+  assert.ok(events.some(e => e[0] === 'overlay-focus'));
+  assert.equal(events.some(e => e[0] === 'clipboard-copy'), false);
+  assert.equal(events.some(e => e[0] === 'open'), false);
+});
+
+test('an invisible pending proposal cannot replace screenshot capture', async () => {
+  const { api, events } = harness();
+  api.proposal(false);
+  await api.onHotkey();
+  assert.equal(api.state().selecting, true);
+  assert.equal(events.some(e => e[0] === 'take-proposal'), false);
+});
+
+test('a visible proposal still opens its task composer', async () => {
+  const { api, events } = harness();
+  api.proposal(true);
+  await api.onHotkey();
+  assert.equal(events.find(e => e[0] === 'open')[1].title, 'Old task');
+  assert.equal(api.state().selecting, false);
+});
+
+test('the overlay accepts focus only during screenshot selection', async () => {
+  for (const finish of ['cancelSelect', 'completeSelection']) {
+    const { api, events } = harness();
+    api.startSelect();
+    await api[finish]({ x: 10, y: 20, w: 200, h: 100 });
+    assert.deepEqual(events.filter(e => e[0] === 'focusable').map(e => Array.from(e)), [['focusable', true], ['focusable', false]]);
+    assert.deepEqual(events.filter(e => e[0] === 'ignore').map(e => Array.from(e)), [['ignore', false], ['ignore', true]]);
+    assert.ok(events.findIndex(e => e[0] === 'overlay-blur') > events.findIndex(e => e[0] === 'overlay-focus'));
+  }
+});
 
 test('another double Shift during selection captures around the cursor', async () => {
   const { api, events } = harness();
