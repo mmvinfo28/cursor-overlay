@@ -5,3 +5,4 @@ overlay.log
 
 .vercel
 .env*
+config.json

@@ -1,5 +1,6 @@
 const { app, BrowserWindow, screen, globalShortcut, desktopCapturer, ipcMain, clipboard } = require('electron');
 const { spawn } = require('child_process');
+const results = require('./results');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -11,6 +12,7 @@ const READER = process.argv.includes('--reader'); // spawn the UIA field reader 
 let win;
 let selecting = false;
 let uiaHelper = null;
+let resultsSync = null;
 
 // Cheap local filter: does the field look like it might carry an actionable commitment?
 // Runs before any model call. A strong signal (date / time / filename / promise verb) passes;
@@ -269,6 +271,18 @@ app.whenReady().then(() => {
   createOverlay();
   startHelpers();
 
+  // finished deliverables land in OneDrive/Desktop/Crewboard and announce themselves at the cursor
+  resultsSync = results.start({
+    log,
+    onResult: ({ name, dir, kind, title }) => {
+      const p = screen.getCursorScreenPoint();
+      const where = dir.replace(os.homedir(), '~');
+      win.webContents.send('toast', { text: `✓ ${title || name}
+${kind === 'pr' ? 'PR' : name} → ${where}`, x: p.x, y: p.y });
+      win.webContents.send('fired');
+    }
+  });
+
   globalShortcut.register('Control+Shift+Space', onHotkey);   // fallback if the Shift hook is unavailable
   ipcMain.on('region', (_, rect) => {
     log('region', rect);
@@ -297,6 +311,7 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => app.quit());
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
+  if (resultsSync) resultsSync.stop();
   if (helper) helper.kill();
   if (shiftHelper) shiftHelper.kill();
   if (uiaHelper) uiaHelper.kill();
