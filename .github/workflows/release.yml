@@ -16,6 +16,7 @@ on:
       - "compose.html"
       - "overlay.html"
       - "feed.html"
+      - "theme.css"
       - "icon.png"
       - "config.default.json"
       - "helpers/**"

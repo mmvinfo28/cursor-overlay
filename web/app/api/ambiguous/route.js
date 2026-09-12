@@ -9,7 +9,7 @@ function allowed(request) {
   const auth = request.headers.get('authorization') || '';
   if (process.env.CRON_SECRET && auth === `Bearer ${process.env.CRON_SECRET}`) return true;
   if (process.env.WORKER_TOKEN && auth === `Bearer ${process.env.WORKER_TOKEN}`) return true;
-  return !process.env.CRON_SECRET && !process.env.WORKER_TOKEN;      // nothing configured: open (hackathon)
+  return false;
 }
 
 async function run(request) {

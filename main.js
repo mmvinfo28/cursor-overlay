@@ -527,7 +527,7 @@ function startUpdater() {
     toastAtCursor({ text: `Crewboard ${info.version} downloaded — restarting in 15 s`, ttl: 8000 });
     if (tray) tray.setToolTip(`Crewboard — update ${info.version} ready`);
     const tryInstall = () => {
-      if (composing || selecting) return setTimeout(tryInstall, 15000);   // never yank the app mid-task
+      if (composing || selecting || capturing) return setTimeout(tryInstall, 15000);   // never yank the app mid-task
       log('update: installing', info.version);
       app.quitting = true;
       autoUpdater.quitAndInstall(true, true);

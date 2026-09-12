@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { authorized, attachmentUrl, download, execute, parseOutput, NeedsHuman, tick } from '../web/lib/worker.mjs';
+import { authorized, attachmentUrl, download, execute, parseOutput, safeFilename, workerModels, NeedsHuman, tick } from '../web/lib/worker.mjs';
 
 const origin = 'https://project.supabase.co';
 test('worker trigger denies missing and incorrect tokens', () => {
@@ -22,6 +22,21 @@ test('deliverables reject traversal, empty files, duplicate names and absent wor
   const out = parseOutput(JSON.stringify({summary:'done',files:[{name:'../../out.txt', content:'x'}, {name:'Assignment answers (final).docx', content:'y'}, {name:'a.txt',content:'x'}, {name:'A.txt',content:'y'}, {name:'', content:'z'}]}));
   assert.deepEqual(out.files.map(f => f.name), ['out.txt', 'Assignment answers (final).md', 'a.txt', 'A-2.txt', 'result-5.md']);
   assert.deepEqual(parseOutput('{"question":"Please attach the report"}'), {question:'Please attach the report'});
+});
+test('source-code deliverables preserve usable extensions and remain inert text', () => {
+  const output = parseOutput(JSON.stringify({summary:'Produced Java classes',files:[{name:'HumanGame.java',content:'public class HumanGame {}'},{name:'ComputerGame.java',content:'public class ComputerGame {}'}]}));
+  assert.deepEqual(output.files.map(file => [file.name, file.mime]), [['HumanGame.java','text/plain'],['ComputerGame.java','text/plain']]);
+  assert.equal(safeFilename('results.exe'), 'results.md');
+  assert.equal(safeFilename('preview.html'), 'preview.html');
+});
+test('model candidates respect explicit order, capability, and empty fallback configuration', () => {
+  assert.deepEqual(workerModels({}), ['qwen3.8-27b','qwen3.8-27b-sglang','qwen3.8-27b-vision']);
+  assert.deepEqual(workerModels({LLM_MODEL:'custom-chat'}), ['custom-chat']);
+  assert.deepEqual(workerModels({LLM_FALLBACK_MODELS:''}), ['qwen3.8-27b']);
+  assert.deepEqual(workerModels({LLM_MODELS:'a, qwen3-embeddings, b, a'}), ['a','b']);
+  assert.deepEqual(workerModels({LLM_MODELS:'text-a,text-b'},true), ['qwen3.8-27b-vision']);
+  assert.deepEqual(workerModels({LLM_VISION_MODEL:'vision-a',LLM_VISION_FALLBACK_MODELS:'vision-b,qwen3-embeddings,qwen3.8-27b,qwen3.8-27b-sglang,vision-a'},true), ['vision-a','vision-b']);
+  assert.deepEqual(workerModels({LLM_MODELS:'qwen3-embeddings'}), []);
 });
 test('PDF summary uses source content and produces the actual file', async () => {
   const calls = [];
@@ -53,6 +68,71 @@ test('image transcription uses vision and embeds the attached image', async () =
 test('truncated model output never becomes done', async () => {
   await assert.rejects(execute({title:'Task'}, [], {env:{LLM_API_KEY:'x'},fetcher:async()=>Response.json({choices:[{finish_reason:'length'}]})}), NeedsHuman);
 });
+const completed = () => Response.json({choices:[{message:{content:'{"summary":"Finished","files":[{"name":"result.txt","content":"Actual work"}]}'}}]});
+test('provider failures switch to the next backend without losing source instructions', async () => {
+  const calls=[], progress=[];
+  const result=await execute({title:'Do the assignment',context:'Produce Java code'}, ['Use arrays'], {
+    env:{LLM_API_KEY:'x'},progress:async message=>progress.push(message),
+    fetcher:async(url,init)=>{const body=JSON.parse(init.body);calls.push(body);return calls.length===1?new Response('',{status:503}):completed();},
+  });
+  assert.equal(result.model,'qwen3.8-27b-sglang');
+  assert.deepEqual(calls.map(call=>call.model),['qwen3.8-27b','qwen3.8-27b-sglang']);
+  assert.deepEqual(calls[0].messages,calls[1].messages);
+  assert.ok(progress.some(message=>message.includes('Switching from qwen3.8-27b to qwen3.8-27b-sglang: HTTP 503')));
+});
+test('a stalled model is aborted before switching to a healthy candidate', async () => {
+  let firstSignal; const calls=[];
+  const result=await execute({title:'Write a result'}, [], {
+    env:{LLM_API_KEY:'x'},attemptTimeoutMs:15,budgetMs:1000,
+    fetcher:async(url,init)=>{calls.push(JSON.parse(init.body).model);if(calls.length===1){firstSignal=init.signal;return new Promise(()=>{});}return completed();},
+  });
+  assert.equal(firstSignal.aborted,true);
+  assert.equal(result.model,'qwen3.8-27b-sglang');
+  assert.equal(calls.length,2);
+});
+test('the total deadline bounds stalled fetches including a stalled response body', async () => {
+  const signals=[];
+  const start=performance.now();
+  await assert.rejects(execute({title:'Work'}, [], {
+    env:{LLM_API_KEY:'x'},attemptTimeoutMs:1000,budgetMs:20,
+    fetcher:async(url,init)=>{signals.push(init.signal);return {ok:true,json:async()=>new Promise(()=>{})};},
+  }), /execution time budget exhausted/);
+  assert.equal(signals.length,1);
+  assert.equal(signals[0].aborted,true);
+  assert.ok(performance.now()-start<1000);
+});
+test('source downloads share the whole execution deadline', async () => {
+  let sourceSignal;
+  await assert.rejects(execute({title:'Read',attachments:[{name:'input.txt',url:`${origin}/storage/v1/object/public/attachments/a.txt`}]}, [], {
+    env:{LLM_API_KEY:'x',NEXT_PUBLIC_SUPABASE_URL:origin},budgetMs:20,
+    fetcher:async(url,init)=>{sourceSignal=init.signal;return new Promise(()=>{});},
+  }), /timed out/);
+  assert.equal(sourceSignal.aborted,true);
+});
+test('malformed output is repaired once before a clean model switch', async () => {
+  const calls=[];
+  const result=await execute({title:'Work'}, [], {
+    env:{LLM_API_KEY:'x'},fetcher:async(url,init)=>{const body=JSON.parse(init.body);calls.push(body);return body.model==='qwen3.8-27b'?Response.json({choices:[{message:{content:'not JSON'}}]}):completed();},
+  });
+  assert.deepEqual(calls.map(call=>call.model),['qwen3.8-27b','qwen3.8-27b','qwen3.8-27b-sglang']);
+  assert.equal(calls[1].messages.length,4);assert.equal(calls[2].messages.length,2);
+  assert.equal(result.files.length,1);
+});
+test('image failover never drops the source or routes to a text-only candidate', async () => {
+  const calls=[];
+  const result=await execute({title:'Read screenshot',crop_url:`${origin}/storage/v1/object/public/crops/a.png`}, [], {
+    env:{NEXT_PUBLIC_SUPABASE_URL:origin,LLM_API_KEY:'x',LLM_MODELS:'text-a,text-b,qwen3-embeddings',LLM_VISION_FALLBACK_MODELS:'vision-backup'},
+    fetcher:async(url,init)=>{if(!init.body)return new Response('pixels');const body=JSON.parse(init.body);calls.push(body);return calls.length===1?new Response('',{status:429}):completed();},
+  });
+  assert.deepEqual(calls.map(call=>call.model),['qwen3.8-27b-vision','vision-backup']);
+  assert.ok(calls.every(call=>call.messages[1].content.some(part=>part.type==='image_url')));
+  assert.equal(result.model,'vision-backup');
+});
+test('authentication failures do not cycle through models with the same rejected key', async () => {
+  let calls=0;
+  await assert.rejects(execute({title:'Task'}, [], {env:{LLM_API_KEY:'x'},fetcher:async()=>{calls++;return new Response('',{status:401});}}), /check LLM_API_KEY/);
+  assert.equal(calls,1);
+});
 // Stateful query fake tests lifecycle and competing tick calls, not just generated JSON.
 function database(seed = {}) {
   const state={workers:[],tasks:[],events:[],uploads:[],...seed};
@@ -80,6 +160,15 @@ test('atomic worker reservation, claim, upload and completion', async()=>{
   assert.equal(results.filter(r=>r.status==='done').length,1);
   assert.equal(state.uploads.length,1);assert.equal(state.tasks[0].status,'done');
   assert.equal(state.tasks[0].result.files[0].name,'result.txt');assert.equal(state.workers[0].status,'idle');
+});
+test('fallback delivers once and later ticks leave completed tasks alone', async()=>{
+  const {db,state}=database({tasks:[{id:'t1',title:'Work',status:'open'}]});
+  let calls=0;
+  const result=await tick(db,{...options,fetcher:async()=>++calls===1?new Response('',{status:503}):completed()});
+  assert.equal(result.status,'done');assert.equal(state.tasks[0].result.model,'qwen3.8-27b-sglang');
+  assert.equal(state.uploads.length,1);assert.equal(state.events.filter(event=>event.kind==='done').length,1);
+  assert.equal(state.events.filter(event=>event.kind==='failed').length,0);
+  assert.equal((await tick(db,options)).status,'idle');assert.equal(state.uploads.length,1);
 });
 test('human question yields queue and only a later answer resumes work',async()=>{
   const {db,state}=database({tasks:[{id:'t1',title:'Missing input',status:'open'}]});

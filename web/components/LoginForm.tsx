@@ -13,8 +13,8 @@ function Login({ auth0 }: { auth0: boolean }) {
   const supabase = createClient();
 
   async function signIn() {
-    setBusy(true); setMsg(null);
     if (!password) return setMsg("Type your password, or use GitHub / the magic link.");
+    setBusy(true); setMsg(null);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setBusy(false);
     if (error) return setMsg(error.message.includes("Invalid login") ? "No account with that email + password. New here? Create account, or get a magic link." : error.message);
