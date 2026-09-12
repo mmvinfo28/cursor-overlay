@@ -26,6 +26,7 @@ let win;
 let feed = null;
 let tray = null;
 let selecting = false;
+let capturing = false;
 let taskLabelActive = false;
 let uiaHelper = null;
 let resultsSync = null;
@@ -216,7 +217,11 @@ function saveText(text) {
 // Ctrl+Shift+Space: ring pops immediately; if the app had text selected that wins,
 // otherwise the user drags a rectangle (Esc / right-click cancels)
 async function onHotkey() {
-  if (selecting) return;
+  if (capturing) return log('capture already in progress');
+  if (selecting) {
+    const c = screen.getCursorScreenPoint();
+    return completeSelection(quickRect(c.x, c.y));
+  }
   // double-tap while the "Create a task" pill is up: the proposal (model title) or, if the model hasn't answered
   // yet, the current line itself becomes the task. The pill flips to "Task selected", crew.js sends it.
   if (composing) { compose.webContents.send('compose-send-now'); return; }   // second double-tap = send as is
@@ -242,7 +247,7 @@ function startSelect() {
   selecting = true;
   log('select start');
   win.setIgnoreMouseEvents(false);
-  globalShortcut.register('Escape', endSelect);
+  globalShortcut.register('Escape', cancelSelect);
   win.webContents.send('select-start');
 }
 
@@ -253,6 +258,41 @@ function endSelect() {
   globalShortcut.unregister('Escape');
   win.setIgnoreMouseEvents(true, { forward: true });
   win.webContents.send('select-end');
+}
+
+function cancelSelect() {
+  if (!selecting) return;
+  const returnToCompose = regionForCompose;
+  regionForCompose = false;
+  log('select cancel');
+  endSelect();
+  if (returnToCompose && composing && compose) { compose.show(); compose.focus(); }
+}
+
+async function completeSelection(rect) {
+  if (!selecting || capturing) return;
+  const returnToCompose = regionForCompose;
+  regionForCompose = false;
+  capturing = true;
+  log('region', rect);
+  endSelect();
+  try {
+    const crop = await captureRect(rect);
+    if (!crop || !crew) return;
+    const png = crop.toPNG();
+    if (returnToCompose) {
+      compose.webContents.send('compose-attach', { name: `region-${Date.now()}.png`, mime: 'image/png', size: png.length, base64: png.toString('base64') });
+    } else {
+      const sourceApp = lastField.app || 'screen';
+      openCompose({ title: `Screenshot from ${sourceApp}`, context: lastField.text ? lastField.text.slice(0, 500) : '', app: sourceApp, cropPng: png });
+    }
+  } catch (e) {
+    log('CAPTURE FAIL', e.message);
+    toastAtCursor({ text: `✗ ${e.message}`, kind: 'fail' });
+  } finally {
+    capturing = false;
+    if (returnToCompose && composing && compose) { compose.show(); compose.focus(); }
+  }
 }
 
 // hide the overlay UI so it doesn't end up in the capture; renderer answers once two frames have painted
@@ -394,8 +434,8 @@ async function composeAdd(kind) {
   } else if (kind === 'region') {
     compose.hide();                                    // let the user drag on the overlay, then come back
     await sleep(150);
-    startSelect();
     regionForCompose = true;
+    startSelect();
   }
 }
 let regionForCompose = false;
@@ -566,23 +606,8 @@ app.whenReady().then(() => {
   globalShortcut.register('CommandOrControl+Shift+C', () => toggleFeed(true));
 
   globalShortcut.register('Control+Shift+Space', onHotkey);   // fallback if the Shift hook is unavailable
-  ipcMain.on('region', (_, rect) => {
-    log('region', rect);
-    endSelect();
-    captureRect(rect).then(crop => {
-      if (!crop || !crew) return;
-      const png = crop.toPNG();
-      if (regionForCompose) {                        // came from the composer's "Screen region" button
-        regionForCompose = false;
-        compose.webContents.send('compose-attach', { name: `region-${Date.now()}.png`, mime: 'image/png', size: png.length, base64: png.toString('base64') });
-        compose.show(); compose.focus();
-        return;
-      }
-      const app = lastField.app || 'screen';
-      openCompose({ title: `Screenshot from ${app}`, context: lastField.text ? lastField.text.slice(0, 500) : '', app, cropPng: png });
-    }).catch(e => { log('CAPTURE FAIL', e.message); toastAtCursor({ text: `✗ ${e.message}`, kind: 'fail' }); });
-  });
-  ipcMain.on('cancel', () => { log('cancel'); endSelect(); if (regionForCompose) { regionForCompose = false; compose.show(); compose.focus(); } });
+  ipcMain.on('region', (_, rect) => completeSelection(rect));
+  ipcMain.on('cancel', cancelSelect);
 
   ipcMain.on('compose-add', (_, kind) => composeAdd(kind).catch(e => { log('compose add failed', kind, e.message); }));
   ipcMain.on('compose-cancel', () => { log('compose cancel'); closeCompose(); });
