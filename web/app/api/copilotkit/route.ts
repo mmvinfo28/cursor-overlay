@@ -4,7 +4,7 @@ import OpenAI from "openai";
 
 export const runtime = "nodejs";
 
-const key = process.env.OPENROUTER_API_KEY;
+const key = process.env.OPENROUTER_API_KEY || process.env.OPENROUTE_API_KEY;
 
 export const POST = async (req: Request) => {
   if (!key) {

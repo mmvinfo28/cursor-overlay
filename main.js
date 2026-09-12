@@ -2,6 +2,7 @@ const { app, BrowserWindow, Tray, Menu, nativeImage, shell, dialog, screen, glob
 const { spawn } = require('child_process');
 const { autoUpdater } = require('electron-updater');
 const results = require('./results');
+const { zipDir } = require('./zipdir');
 const crewmod = require('./crew');
 const fs = require('fs');
 const os = require('os');
@@ -366,6 +367,17 @@ async function composeAdd(kind) {
       const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.pdf': 'application/pdf', '.csv': 'text/csv', '.txt': 'text/plain', '.md': 'text/markdown', '.json': 'application/json',
         '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }[ext] || 'application/octet-stream';
       reply({ name: path.basename(f), mime, size: st.size, base64: fs.readFileSync(f).toString('base64') });
+    }
+    compose.focus();
+  } else if (kind === 'folder') {
+    const r = await dialog.showOpenDialog(compose, { properties: ['openDirectory'] });
+    const dir = r.filePaths && r.filePaths[0];
+    if (dir) {
+      const z = zipDir(dir);
+      const name = path.basename(dir) + '.zip';
+      reply({ name, mime: 'application/zip', size: z.buffer.length, base64: z.buffer.toString('base64'), kind: 'folder', path: dir });
+      reply({ text: `Folder ${dir} (${z.count} files${z.skipped ? `, ${z.skipped} skipped: >10 MB or over the 24 MB total` : ''}):\n` + z.listing.map(f => '  ' + f).join('\n') + (z.listing.length < z.count ? '\n  …' : '') });
+      log('folder attached', dir, z.count, 'files', z.buffer.length, 'bytes');
     }
     compose.focus();
   } else if (kind === 'clipboard') {

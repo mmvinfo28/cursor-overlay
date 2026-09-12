@@ -158,7 +158,7 @@ function Card({ t, onAnswer }: { t: Task; onAnswer: (id: string, text: string) =
       {(t.attachments || []).length > 0 && (
         <div className="flex flex-wrap gap-1.5 mt-2">
           {t.attachments.map((a, i) => (
-            <a key={i} className="chip" href={a.url} target="_blank" rel="noreferrer" title={a.url}>{a.kind === "link" ? "🔗" : a.mime?.startsWith("image/") ? "🖼" : "📎"} <span className="truncate">{a.name}</span></a>
+            <a key={i} className="chip" href={a.url} target="_blank" rel="noreferrer" title={a.url}>{a.kind === "link" ? "🔗" : a.kind === "folder" ? "🗂" : a.mime?.startsWith("image/") ? "🖼" : "📎"} <span className="truncate">{a.name}</span></a>
           ))}
         </div>
       )}

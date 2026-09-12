@@ -84,7 +84,7 @@ function create({ cfg, log, onToast, onProposal, onSent, onUpdate }) {
       method: 'POST', headers: { ...sb, 'Content-Type': a.mime || 'application/octet-stream', 'x-upsert': 'false' }, body: buf
     });
     if (!r.ok) throw new Error(`upload ${r.status} ${(await r.text()).slice(0, 100)}`);
-    return { name: a.name, url: `${cfg.supabaseUrl}/storage/v1/object/public/attachments/${key}`, mime: a.mime || null, size: buf.length, kind: 'file' };
+    return { name: a.name, url: `${cfg.supabaseUrl}/storage/v1/object/public/attachments/${key}`, mime: a.mime || null, size: buf.length, kind: a.kind || 'file', path: a.path || undefined };
   }
 
   // ---- send ----

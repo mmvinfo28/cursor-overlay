@@ -47,6 +47,7 @@
     <div class="lbl">Add context from</div>
     <div id="srcs">
       <button data-k="file">📎 File</button>
+      <button data-k="folder">🗂 Folder</button>
       <button data-k="region">✂ Screen region</button>
       <button data-k="clipboard">📋 Clipboard</button>
       <button data-k="field">🪟 This field</button>
@@ -67,7 +68,7 @@
     for (const a of attachments) {
       const el = document.createElement('span');
       el.className = 'chip';
-      el.innerHTML = `${a.thumb ? `<img src="${a.thumb}">` : a.mime && a.mime.startsWith('image/') ? '🖼' : a.kind === 'link' ? '🔗' : '📎'} <span title="${a.name}">${a.name}</span>${a.size ? `<b>${(a.size / 1024).toFixed(0)} KB</b>` : ''}<span class="x" title="remove">✕</span>`;
+      el.innerHTML = `${a.thumb ? `<img src="${a.thumb}">` : a.mime && a.mime.startsWith('image/') ? '🖼' : a.kind === 'link' ? '🔗' : a.kind === 'folder' ? '🗂' : '📎'} <span title="${a.name}">${a.name}</span>${a.size ? `<b>${(a.size / 1024).toFixed(0)} KB</b>` : ''}<span class="x" title="remove">✕</span>`;
       el.querySelector('.x').onclick = () => { attachments = attachments.filter(x => x.id !== a.id); renderAtt(); };
       $('att').appendChild(el);
     }

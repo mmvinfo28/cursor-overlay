@@ -27,6 +27,7 @@
       "main.js",
       "results.js",
       "crew.js",
+      "zipdir.js",
       "overlay.html",
       "feed.html",
       "compose.html",

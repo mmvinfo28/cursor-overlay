@@ -27,7 +27,7 @@ export async function POST(request: Request) {
       crop_url,
       created_by: body.created_by ?? "overlay",
       attachments: Array.isArray(body.attachments)
-        ? body.attachments.slice(0, 20).map((a: { name?: string; url?: string; mime?: string; size?: number; kind?: string }) => ({ name: String(a.name ?? "file").slice(0, 200), url: String(a.url ?? ""), mime: a.mime ?? null, size: a.size ?? null, kind: a.kind ?? "file" }))
+        ? body.attachments.slice(0, 20).map((a: { name?: string; url?: string; mime?: string; size?: number; kind?: string; path?: string }) => ({ name: String(a.name ?? "file").slice(0, 200), url: String(a.url ?? ""), mime: a.mime ?? null, size: a.size ?? null, kind: a.kind ?? "file", path: a.path ?? null }))
         : [],
     })
     .select("id")

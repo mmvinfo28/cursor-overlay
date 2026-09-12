@@ -7,7 +7,7 @@ const MODEL = process.env.PROPOSE_MODEL || "openai/gpt-4o-mini";
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
   if (!body?.text) return NextResponse.json({ propose: false });
-  const key = process.env.OPENROUTER_API_KEY;
+  const key = process.env.OPENROUTER_API_KEY || process.env.OPENROUTE_API_KEY;
   if (!key) return NextResponse.json({ propose: false, reason: "no OPENROUTER_API_KEY" });
 
   const system =
