@@ -91,6 +91,7 @@ export default async function Landing({ signedIn = false }: { signedIn?: boolean
               )}
             </div>
             <p className="text-xs text-dim mt-4">Windows 11 · updates itself · Mac build is a results viewer for now.</p>
+            <p className="mt-5"><Link href="/walkthrough" className="text-sm text-amber-2 hover:text-white">▶ Watch the 60-second walkthrough →</Link></p>
           </div>
           <div className="fade-in" style={{ animationDelay: ".1s" }}><Demo /></div>
         </section>
