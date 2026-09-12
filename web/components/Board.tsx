@@ -117,26 +117,27 @@ export default function Board({ initialTasks, initialWorkers, user, ambiguous, a
   );
 }
 
-// Your seat in the team's Ambiguous workspace + your own coworker; provisioned on first visit.
+// Ambiguous, provisioned at sign-up: their own workspace + coworker (claim email), or a seat in the team's.
 function AmbiguousTile({ st, base }: { st: AmbiguousState | null; base: string }) {
   const ok = st?.status === "ready";
-  const label = !st || st.status === "unconfigured" ? "not connected" : st.status === "error" ? "retrying" : st.status === "invited" ? "invite sent" : "connected";
+  const label = !st || st.status === "unconfigured" ? "not connected" : st.status === "error" ? "retrying" : st.status === "invited" ? "invite sent" : st.provisional ? "claim pending" : "connected";
   return (
     <section className="surface p-3">
       <div className="flex items-center gap-2">
         <span className="avatar codex !w-7 !h-7 !text-[11px]">A</span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 text-sm font-semibold">Ambiguous <span className={`live-dot ${ok ? "" : "off"}`} /></div>
-          <div className="text-[11px] text-dim">{label}{st?.agent_name ? ` · ${st.agent_name}` : ""}</div>
+          <div className="text-[11px] text-dim truncate">{label}{st?.workspace_name ? ` · ${st.workspace_name}` : ""}</div>
         </div>
       </div>
-      {st?.status === "unconfigured" && <p className="text-[11px] text-dim mt-2">Set <code>AMBIGUOUS_ADMIN_KEY</code> on Vercel and every sign-up gets a workspace seat and a coworker.</p>}
+      {st?.status === "unconfigured" && <p className="text-[11px] text-dim mt-2">{st.error || "Sign in with an email to get your workspace."}</p>}
       {st?.status === "error" && <p className="text-[11px] text-bad mt-2 break-words">{st.error}</p>}
       {(st?.status === "invited" || ok) && (
         <div className="flex flex-col gap-1.5 mt-2">
+          {st?.mode === "own" && st.provisional && <p className="text-[11px] text-amber-2">Check your email — claim <b>{st.workspace_name}</b> to become its owner.</p>}
           {st?.invite_url && <a className="btn !py-1.5 !text-xs" href={st.invite_url} target="_blank" rel="noreferrer">Accept your invite ↗</a>}
-          <a className="btn !py-1.5 !text-xs" href={base} target="_blank" rel="noreferrer">Open workspace ↗</a>
-          <p className="text-[11px] text-dim">Results are posted to <b>#crewboard</b>; mention your coworker there to give it work.</p>
+          <a className="btn !py-1.5 !text-xs" href={base} target="_blank" rel="noreferrer">Open Ambiguous ↗</a>
+          <p className="text-[11px] text-dim">Your coworker <b>{st?.agent_name}</b>{st?.agent_email ? ` (${st.agent_email})` : ""} posts results to <b>#crewboard</b>; mention it to give it work.</p>
         </div>
       )}
     </section>
