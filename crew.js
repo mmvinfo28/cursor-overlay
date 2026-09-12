@@ -3,6 +3,7 @@
 //   send(...)        POST /api/task with text + app + optional crop
 //   track(id)        polls the task row until it's done; reports claim / needs-human / done / failed
 const os = require('os');
+const llm = require('./llm');
 
 const PROPOSE_DEBOUNCE_MS = 700;
 const PROPOSAL_TTL_MS = 6000;      // a proposal you ignore dies after this
@@ -48,16 +49,19 @@ function create({ cfg, log, onToast, onProposal, onSent, onUpdate }) {
     const my = ++seq;
     timer = setTimeout(async () => {
       let out;
+      const proposer = cfg.proposer || 'server';          // server | claude | codex | gemini | local
       try {
-        out = await askServer(text, f.app);
+        if (proposer === 'local') out = { propose: true, title: localTitle(text), local: true };
+        else if (llm.RUNNERS[proposer]) out = await llm.run(proposer, text, f.app, log);
+        else out = await askServer(text, f.app);
         if (!out.propose && out.reason && cfg.localPropose !== false) { log('propose server:', out.reason, '- local title'); out = { propose: true, title: localTitle(text), local: true }; }
       } catch (e) {
-        log('propose failed', e.message);
+        log('propose failed', proposer, e.message);
         if (cfg.localPropose !== false) out = { propose: true, title: localTitle(text), local: true };
       }
       if (my !== seq || !out || !out.propose) return;
       proposal = { title: out.title, context: text, app: f.app, at: Date.now() };
-      log('PROPOSE', out.local ? '(local)' : '(model)', out.title);
+      log('PROPOSE', out.local ? '(local)' : `(${out.provider || 'server'})`, out.title);
       onToast({ text: `↯ ${out.title}\nDouble-tap Shift to send to the crew`, kind: 'proposal', ttl: PROPOSAL_TTL_MS });
     }, PROPOSE_DEBOUNCE_MS);
   }

@@ -4,5 +4,6 @@
   "resultsDir": null,
   "apiBase": "https://crewboard-web.vercel.app",
   "user": null,
-  "localPropose": true
+  "localPropose": true,
+  "proposer": "server"
 }

@@ -3,6 +3,7 @@ const { spawn } = require('child_process');
 const { autoUpdater } = require('electron-updater');
 const results = require('./results');
 const { zipDir } = require('./zipdir');
+const llm = require('./llm');
 const crewmod = require('./crew');
 const fs = require('fs');
 const os = require('os');
@@ -417,12 +418,16 @@ function toggleFeed(focusNew) {
 function createTray() {
   const img = nativeImage.createFromPath(ICON).resize({ width: 16, height: 16 });
   tray = new Tray(img);
-  tray.setToolTip('Crewboard');
-  tray.setContextMenu(Menu.buildFromTemplate([
+  tray.setToolTip('Crewboard');            // menu is built fresh on each right-click (radio state, versions)
+}
+
+function trayTemplate() {
+  return [
     { label: 'Open Crewboard', click: () => toggleFeed(true) },
     { label: 'Open results folder', click: () => { if (resultsSync) shell.openPath(resultsSync.dir); } },
     { label: 'Change results folder…', click: () => chooseResultsDir() },
     { type: 'separator' },
+    { label: 'Propose with', submenu: proposerMenu() },
     { label: 'Show field reader (debug)', type: 'checkbox', checked: showPanel, enabled: READER,
       click: m => { showPanel = m.checked; if (!showPanel) win.webContents.send('field-hide'); } },
     { label: WIN ? 'Start with Windows' : 'Start at login', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin,
@@ -432,8 +437,12 @@ function createTray() {
     { label: 'Restart to update', click: () => { app.quitting = true; autoUpdater.quitAndInstall(); } },
     { type: 'separator' },
     { label: 'Quit', click: () => { app.quitting = true; app.quit(); } }
-  ]));
+  ];
+}
+
+function trayEvents() {
   tray.on('click', () => toggleFeed(false));
+  tray.on('right-click', () => tray.popUpContextMenu(Menu.buildFromTemplate(trayTemplate())));
 }
 
 // ---- auto-update: GitHub Releases. Checks at start and hourly; installs silently on quit ----
@@ -450,6 +459,30 @@ function startUpdater() {
   const check = () => autoUpdater.checkForUpdates().catch(e => log('update check failed', e.message));
   setTimeout(check, 10000);
   setInterval(check, 60 * 60 * 1000);
+}
+
+function saveConfig(patch) {
+  let cfg = {};
+  try { cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); } catch {}
+  Object.assign(cfg, patch);
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2));
+  if (resultsSync && resultsSync.cfg) Object.assign(resultsSync.cfg, patch);   // crew.js reads cfg live
+  return cfg;
+}
+
+// "Propose with": the server (hackathon Qwen / OpenRouter / any key on Vercel) or a CLI you're logged into
+function proposerMenu() {
+  const found = llm.detect();
+  const cur = (resultsSync && resultsSync.cfg && resultsSync.cfg.proposer) || 'server';
+  const item = (id, label, enabled = true) => ({ label, type: 'radio', checked: cur === id, enabled,
+    click: () => { saveConfig({ proposer: id }); log('proposer ->', id); } });
+  return [
+    item('server', 'Server (Crewboard API)'),
+    item('claude', found.claude ? 'Claude Code CLI (your plan)' : 'Claude Code CLI — not installed', !!found.claude),
+    item('codex', found.codex ? 'Codex CLI (your ChatGPT plan)' : 'Codex CLI — not installed', !!found.codex),
+    item('gemini', found.gemini ? 'Gemini CLI (your Google account)' : 'Gemini CLI — not installed', !!found.gemini),
+    item('local', 'No model (first words of the line)'),
+  ];
 }
 
 // pick where results go; saved in config.json, sync restarts on the new folder
@@ -505,6 +538,7 @@ app.whenReady().then(() => {
   createFeed();
   createCompose();
   createTray();
+  trayEvents();
   startHelpers();
   startUpdater();
   if (app.isPackaged && !process.argv.includes('--no-autostart')) app.setLoginItemSettings({ openAtLogin: true });
