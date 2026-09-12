@@ -1,7 +1,27 @@
 {
-  "name": "cursor-overlay-test",
-  "version": "1.0.0",
+  "name": "crewboard-overlay",
+  "productName": "Crewboard",
+  "version": "0.1.0",
+  "description": "Cursor companion: captures intent where you type, hands it to the crew, brings the results back.",
   "main": "main.js",
-  "scripts": { "start": "electron ." },
-  "devDependencies": { "electron": "^32.0.0" }
+  "author": "MM studios",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "reader": "electron . --reader",
+    "dist": "electron-builder --win nsis --publish never"
+  },
+  "devDependencies": {
+    "electron": "^32.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "studio.mm.crewboard",
+    "productName": "Crewboard",
+    "directories": { "output": "dist" },
+    "files": ["main.js", "results.js", "overlay.html", "feed.html", "icon.png", "config.default.json", "helpers/**"],
+    "asarUnpack": ["helpers/**"],
+    "win": { "target": [{ "target": "nsis", "arch": ["x64"] }], "icon": "icon.png" },
+    "nsis": { "oneClick": true, "perMachine": false, "runAfterFinish": true, "deleteAppDataOnUninstall": false }
+  }
 }

@@ -1,0 +1,181 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8">
+<style>
+  :root { --amber:#E9A23B; --bg:#141416; --card:#1c1c1f; --line:#2a2a2e; --txt:#e6e6e6; --dim:#8a8a90; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--txt); font:13px/1.45 system-ui, Segoe UI, sans-serif; overflow:hidden; }
+  * { box-sizing:border-box; }
+
+  /* frameless window: header is the drag handle */
+  #hd { display:flex; align-items:center; gap:10px; padding:10px 12px 10px 14px; border-bottom:1px solid var(--line); -webkit-app-region:drag; user-select:none; }
+  #hd .ring { width:14px; height:14px; border-radius:50%; border:2px solid var(--amber); background:rgba(233,162,59,.22); }
+  #hd h1 { margin:0; font-size:14px; font-weight:600; }
+  #hd .st { margin-left:auto; color:var(--dim); font-size:11px; }
+  #hd .st::before { content:''; display:inline-block; width:7px; height:7px; border-radius:50%; background:#6ee08a; margin-right:5px; }
+  #hd .st.off::before { background:#e06e6e; }
+  #hd button { -webkit-app-region:no-drag; background:none; border:0; color:var(--dim); font-size:15px; cursor:pointer; padding:2px 6px; border-radius:6px; }
+  #hd button:hover { background:var(--line); color:#fff; }
+
+  /* new task */
+  #new { display:flex; gap:8px; padding:10px 12px; border-bottom:1px solid var(--line); }
+  #new input { flex:1; background:#0f0f11; border:1px solid var(--line); color:var(--txt); padding:8px 10px; border-radius:8px; font:inherit; outline:none; }
+  #new input:focus { border-color:var(--amber); }
+  #new button { background:var(--amber); color:#1a1a1a; border:0; padding:0 14px; border-radius:8px; font:inherit; font-weight:600; cursor:pointer; }
+
+  #list { position:absolute; top:99px; bottom:34px; left:0; right:0; overflow-y:auto; padding:10px 12px; }
+  #list:empty::before { content:'Nothing yet. Type in Slack, or add a task above.'; color:var(--dim); display:block; text-align:center; margin-top:60px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:8px; }
+  .card.new { animation:in .4s cubic-bezier(.34,1.4,.64,1) both; }
+  @keyframes in { from { transform:translateY(-6px); opacity:0; } }
+  .row { display:flex; align-items:center; gap:8px; }
+  .title { font-weight:600; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pill { font-size:11px; font-weight:600; padding:2px 8px; border-radius:999px; background:#2a2a2e; color:#aaa; white-space:nowrap; }
+  .pill.open { color:#ddd; }
+  .pill.claimed, .pill.running { background:rgba(233,162,59,.16); color:var(--amber); }
+  .pill.running::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--amber); margin-right:5px; animation:blink 1s infinite; }
+  @keyframes blink { 50% { opacity:.2; } }
+  .pill.done { background:rgba(90,200,120,.16); color:#6ee08a; }
+  .pill.failed { background:rgba(224,110,110,.16); color:#e06e6e; }
+  .pill.needs-human { background:rgba(120,160,255,.16); color:#8fb0ff; }
+  .meta { color:var(--dim); font-size:11px; margin-top:3px; }
+  .ctx { color:#b8b8bc; font-size:12px; margin-top:6px; white-space:pre-wrap; word-break:break-word; max-height:54px; overflow:hidden; }
+  .sum { margin-top:8px; padding:8px 10px; background:#111; border:1px solid #262628; border-radius:8px; font-size:12px; white-space:pre-wrap; word-break:break-word; }
+  .files { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .chip { display:inline-flex; align-items:center; gap:5px; background:#0f0f11; border:1px solid var(--line); color:#ddd; padding:4px 9px; border-radius:7px; font-size:12px; cursor:pointer; max-width:100%; }
+  .chip:hover { border-color:var(--amber); }
+  .chip span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .chip.folder { color:var(--dim); }
+  .ask { margin-top:8px; padding:8px 10px; background:rgba(120,160,255,.08); border:1px solid rgba(120,160,255,.3); border-radius:8px; }
+  .ask .q { font-size:12px; color:#cfe0ff; margin-bottom:6px; }
+  .ask .row input { flex:1; background:#0f0f11; border:1px solid var(--line); color:var(--txt); padding:6px 8px; border-radius:6px; font:inherit; outline:none; }
+  .ask .row button { background:#8fb0ff; color:#101020; border:0; padding:6px 10px; border-radius:6px; font:inherit; font-weight:600; cursor:pointer; }
+
+  #ft { position:absolute; bottom:0; left:0; right:0; height:34px; display:flex; align-items:center; gap:6px; padding:0 14px; border-top:1px solid var(--line); color:var(--dim); font-size:11px; white-space:nowrap; }
+  #ft > span:first-child { flex:none; }
+  #ft a { color:var(--dim); text-decoration:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; }
+  #ft a:hover { color:var(--amber); }
+  #ft .kbd { margin-left:auto; white-space:nowrap; }
+  kbd { background:#0f0f11; border:1px solid var(--line); border-radius:4px; padding:0 4px; font:11px ui-monospace, Consolas, monospace; }
+</style></head>
+<body>
+  <div id="hd">
+    <div class="ring"></div>
+    <h1>Crewboard</h1>
+    <span class="st off" id="st">connecting</span>
+    <button id="hide" title="Hide (Ctrl+Shift+C)">✕</button>
+  </div>
+  <div id="new">
+    <input id="q" placeholder="What should the crew do?  (Enter)" />
+    <button id="go">Add</button>
+  </div>
+  <div id="list"></div>
+  <div id="ft">
+    <span>results →</span><a id="dir" title="Open results folder">…</a>
+    <span class="kbd"><kbd>⇧⇧</kbd> capture · <kbd id="mod">Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> panel</span>
+  </div>
+
+  <script>
+    const { ipcRenderer, shell } = require('electron');
+    const list = document.getElementById('list');
+    const st = document.getElementById('st');
+    let cfg = null, localFiles = {}, known = new Set(), first = true;
+
+    document.getElementById('hide').onclick = () => ipcRenderer.send('feed-hide');
+    document.getElementById('dir').onclick = () => ipcRenderer.send('open-results-dir');
+
+    const h = () => ({ apikey: cfg.anonKey, Authorization: `Bearer ${cfg.anonKey}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' });
+
+    async function addTask() {
+      const q = document.getElementById('q');
+      const title = q.value.trim();
+      if (!title || !cfg) return;
+      q.value = '';
+      await fetch(`${cfg.supabaseUrl}/rest/v1/tasks`, { method: 'POST', headers: h(),
+        body: JSON.stringify({ title: title.slice(0, 120), context: title, source_app: 'Crewboard', created_by: cfg.user || 'overlay' }) });
+      load();
+    }
+    document.getElementById('go').onclick = addTask;
+    document.getElementById('q').addEventListener('keydown', e => { if (e.key === 'Enter') addTask(); });
+
+    async function answer(taskId, text) {
+      if (!text.trim()) return;
+      await fetch(`${cfg.supabaseUrl}/rest/v1/events`, { method: 'POST', headers: h(),
+        body: JSON.stringify({ task_id: taskId, kind: 'human-answer', payload: { text } }) });
+      load();
+    }
+
+    function ago(iso) {
+      const s = Math.max(0, (Date.now() - new Date(iso)) / 1000);
+      if (s < 60) return 'just now';
+      if (s < 3600) return Math.round(s / 60) + ' min ago';
+      if (s < 86400) return Math.round(s / 3600) + ' h ago';
+      return new Date(iso).toLocaleDateString();
+    }
+    const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+    function render(tasks) {
+      const frag = document.createDocumentFragment();
+      for (const t of tasks) {
+        const card = document.createElement('div');
+        card.className = 'card' + (!first && !known.has(t.id) ? ' new' : '');
+        known.add(t.id);
+        const dl = (t.deliverables || []).slice().sort((a, b) => a.created_at < b.created_at ? -1 : 1);
+        const summary = dl.find(d => d.kind === 'text');
+        const files = dl.filter(d => d.kind !== 'text');
+        const question = t.status === 'needs-human' ? (t.events || []).filter(e => e.kind === 'needs-human').pop() : null;
+        const worker = t.worker ? `${t.worker.name}` : (t.status === 'open' ? 'waiting for a worker' : '');
+        card.innerHTML = `
+          <div class="row"><div class="title" title="${esc(t.title)}">${esc(t.title)}</div><span class="pill ${esc(t.status)}">${esc(t.status)}</span></div>
+          <div class="meta">${esc([worker, t.source_app, ago(t.created_at)].filter(Boolean).join(' · '))}</div>
+          ${t.context && t.context !== t.title ? `<div class="ctx">${esc(t.context)}</div>` : ''}
+          ${summary ? `<div class="sum">${esc(summary.body)}</div>` : ''}
+          ${files.length ? `<div class="files">${files.map(d => `<a class="chip" data-id="${d.id}" data-url="${esc(d.url || '')}" title="${esc(d.url || '')}">${d.kind === 'pr' ? '🔀' : '📄'} <span>${esc(d.name)}</span></a>`).join('')}${files.some(d => localFiles[d.id]) ? `<a class="chip folder" data-folder="${esc(localFiles[files.find(d => localFiles[d.id]).id])}">📁 folder</a>` : ''}</div>` : ''}
+          ${question ? `<div class="ask"><div class="q">${esc(question.payload && question.payload.question || 'The worker needs your input.')}</div><div class="row"><input placeholder="Answer…" /><button>Send</button></div></div>` : ''}`;
+        card.querySelectorAll('.chip[data-id]').forEach(el => el.onclick = () => {
+          const local = localFiles[el.dataset.id];
+          if (local) shell.openPath(local); else if (el.dataset.url) shell.openExternal(el.dataset.url);
+        });
+        const fo = card.querySelector('.chip[data-folder]');
+        if (fo) fo.onclick = () => shell.showItemInFolder(fo.dataset.folder);
+        const ask = card.querySelector('.ask');
+        if (ask) {
+          const inp = ask.querySelector('input'), btn = ask.querySelector('button');
+          btn.onclick = () => answer(t.id, inp.value);
+          inp.addEventListener('keydown', e => { if (e.key === 'Enter') answer(t.id, inp.value); });
+        }
+        frag.appendChild(card);
+      }
+      list.replaceChildren(frag);
+      first = false;
+    }
+
+    let loading = false;
+    async function load() {
+      if (!cfg || loading) return;
+      loading = true;
+      try {
+        const url = `${cfg.supabaseUrl}/rest/v1/tasks?select=*,worker:workers(name,kind),deliverables(*),events(kind,payload,at)&order=created_at.desc&limit=100`;
+        const r = await fetch(url, { headers: { apikey: cfg.anonKey, Authorization: `Bearer ${cfg.anonKey}` } });
+        if (!r.ok) throw new Error(r.status);
+        localFiles = await ipcRenderer.invoke('local-files');
+        const active = document.activeElement;
+        if (!(active && active.tagName === 'INPUT' && active.closest('.card'))) render(await r.json());   // don't clobber an answer being typed
+        st.textContent = 'live'; st.classList.remove('off');
+      } catch (e) {
+        st.textContent = 'offline'; st.classList.add('off');
+      }
+      loading = false;
+    }
+
+    (async () => {
+      cfg = await ipcRenderer.invoke('config');
+      if (process.platform === 'darwin') document.getElementById('mod').textContent = '⌘';
+      document.getElementById('dir').textContent = ((cfg && cfg.resultsDir) || '—').replace(require('os').homedir(), '~');
+      load();
+      setInterval(load, 3000);
+    })();
+    ipcRenderer.on('refresh', load);
+    ipcRenderer.on('focus-new', () => document.getElementById('q').focus());
+  </script>
+</body>
+</html>

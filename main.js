@@ -1,4 +1,4 @@
-const { app, BrowserWindow, screen, globalShortcut, desktopCapturer, ipcMain, clipboard } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, shell, screen, globalShortcut, desktopCapturer, ipcMain, clipboard } = require('electron');
 const { spawn } = require('child_process');
 const results = require('./results');
 const fs = require('fs');
@@ -6,10 +6,19 @@ const os = require('os');
 const path = require('path');
 
 const QUICK_RADIUS = 200; // DIP: a plain click (no drag) grabs a 400x400 box around it
-const CAPTURE_DIR = path.join(__dirname, 'captures');
 const READER = process.argv.includes('--reader'); // spawn the UIA field reader + show the live panel
 
+// installed: user files live in %APPDATA%\Crewboard, helpers are unpacked next to the asar.
+// dev: everything sits in the repo folder, as before.
+const USER_DIR = app.isPackaged ? app.getPath('userData') : __dirname;
+const HELPER_DIR = path.join(__dirname.replace('app.asar', 'app.asar.unpacked'), 'helpers', 'win');
+const CAPTURE_DIR = path.join(USER_DIR, 'captures');
+const CONFIG_FILE = path.join(USER_DIR, 'config.json');
+const ICON = path.join(__dirname, 'icon.png');
+
 let win;
+let feed = null;
+let tray = null;
 let selecting = false;
 let uiaHelper = null;
 let resultsSync = null;
@@ -36,7 +45,7 @@ function localFilter(text) {
 }
 
 // log to console and to overlay.log (the app is normally launched detached, without a console)
-const LOG_FILE = path.join(__dirname, 'overlay.log');
+const LOG_FILE = path.join(USER_DIR, 'overlay.log');
 function log(...a) {
   const line = [new Date().toISOString().slice(11, 23), ...a.map(v => typeof v === 'string' ? v : JSON.stringify(v))].join(' ');
   console.log(line);
@@ -87,7 +96,7 @@ const helperQueue = [];
 
 function spawnPs(script, onLine) {
   const ps = spawn('powershell.exe',
-    ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, script)],
+    ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(HELPER_DIR, script)],
     { windowsHide: true });
   let buf = '';
   ps.stdout.on('data', d => {
@@ -267,21 +276,83 @@ async function grab(rect) {
   return crop;
 }
 
-app.whenReady().then(() => {
-  createOverlay();
-  startHelpers();
+// ---- feed: the "what the crew did for me" window. Frameless, hides instead of closing, lives in the tray ----
+function createFeed() {
+  feed = new BrowserWindow({
+    width: 440, height: 680, minWidth: 360, minHeight: 400,
+    show: false, frame: false, backgroundColor: '#141416', icon: ICON,
+    webPreferences: { nodeIntegration: true, contextIsolation: false }
+  });
+  feed.loadFile('feed.html');
+  feed.on('close', e => { if (!app.quitting) { e.preventDefault(); feed.hide(); } });
+}
 
-  // finished deliverables land in OneDrive/Desktop/Crewboard and announce themselves at the cursor
+function toggleFeed(focusNew) {
+  if (feed.isVisible() && feed.isFocused() && !focusNew) return feed.hide();
+  if (!feed.isVisible()) {
+    const { workArea } = screen.getPrimaryDisplay();          // bottom-right, above the taskbar
+    const [w, h] = feed.getSize();
+    feed.setPosition(workArea.x + workArea.width - w - 16, workArea.y + workArea.height - h - 16);
+  }
+  feed.show(); feed.focus();
+  if (focusNew) feed.webContents.send('focus-new');
+}
+
+function createTray() {
+  const img = nativeImage.createFromPath(ICON).resize({ width: 16, height: 16 });
+  tray = new Tray(img);
+  tray.setToolTip('Crewboard');
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Open Crewboard', click: () => toggleFeed(true) },
+    { label: 'Results folder', click: () => { if (resultsSync) shell.openPath(resultsSync.dir); } },
+    { type: 'separator' },
+    { label: 'Start with Windows', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin,
+      click: m => app.setLoginItemSettings({ openAtLogin: m.checked }) },
+    { label: 'Quit', click: () => { app.quitting = true; app.quit(); } }
+  ]));
+  tray.on('click', () => toggleFeed(false));
+}
+
+// first run of the installed app: seed config.json from the bundled default
+function ensureConfig() {
+  if (fs.existsSync(CONFIG_FILE)) return;
+  try {
+    fs.mkdirSync(USER_DIR, { recursive: true });
+    fs.copyFileSync(path.join(__dirname, 'config.default.json'), CONFIG_FILE);
+    log('config seeded at', CONFIG_FILE);
+  } catch (e) { log('config seed failed', e.message); }
+}
+
+// one overlay per machine: a second launch just opens the feed of the running one
+if (!app.requestSingleInstanceLock()) app.quit();
+app.on('second-instance', () => { if (feed) toggleFeed(true); });
+
+app.whenReady().then(() => {
+  ensureConfig();
+  createOverlay();
+  createFeed();
+  createTray();
+  startHelpers();
+  if (app.isPackaged && !process.argv.includes('--no-autostart')) app.setLoginItemSettings({ openAtLogin: true });
+
+  // finished deliverables land in OneDrive/Desktop/Crewboard, announce themselves at the cursor, refresh the feed
   resultsSync = results.start({
     log,
-    onResult: ({ name, dir, kind, title }) => {
+    configFile: CONFIG_FILE,
+    onResult: ({ title, dir, names }) => {
       const p = screen.getCursorScreenPoint();
       const where = dir.replace(os.homedir(), '~');
-      win.webContents.send('toast', { text: `✓ ${title || name}
-${kind === 'pr' ? 'PR' : name} → ${where}`, x: p.x, y: p.y });
+      win.webContents.send('toast', { text: `✓ ${title || names[0]}\n${names.join(', ')} → ${where}`, x: p.x, y: p.y });
       win.webContents.send('fired');
+      feed.webContents.send('refresh');
     }
   });
+
+  ipcMain.handle('config', () => resultsSync ? resultsSync.cfg : results.loadConfig(CONFIG_FILE));
+  ipcMain.handle('local-files', () => resultsSync ? resultsSync.localFiles() : {});
+  ipcMain.on('feed-hide', () => feed.hide());
+  ipcMain.on('open-results-dir', () => { if (resultsSync) shell.openPath(resultsSync.dir); });
+  globalShortcut.register('Control+Shift+C', () => toggleFeed(true));
 
   globalShortcut.register('Control+Shift+Space', onHotkey);   // fallback if the Shift hook is unavailable
   ipcMain.on('region', (_, rect) => {
@@ -294,6 +365,17 @@ ${kind === 'pr' ? 'PR' : name} → ${where}`, x: p.x, y: p.y });
   if (process.argv.includes('--selftest')) {
     const p = screen.getCursorScreenPoint();
     setTimeout(() => captureRect(quickRect(p.x, p.y)).catch(e => log('CAPTURE FAIL', e.message)), 1500);
+  }
+  if (process.argv.includes('--selftest-feed')) {              // open the feed, save a screenshot of it, keep running
+    setTimeout(async () => {
+      toggleFeed(true);
+      await sleep(2500);
+      const img = await feed.webContents.capturePage();
+      fs.mkdirSync(CAPTURE_DIR, { recursive: true });
+      const file = path.join(CAPTURE_DIR, 'feed.png');
+      fs.writeFileSync(file, img.toPNG());
+      log('FEED SHOT', file);
+    }, 1500);
   }
   if (process.argv.includes('--selftest-toast')) {
     setTimeout(() => {
@@ -308,7 +390,8 @@ ${kind === 'pr' ? 'PR' : name} → ${where}`, x: p.x, y: p.y });
   }
 });
 
-app.on('window-all-closed', () => app.quit());
+app.on('window-all-closed', () => {});                          // tray app: overlay + feed stay alive
+app.on('before-quit', () => { app.quitting = true; });
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   if (resultsSync) resultsSync.stop();

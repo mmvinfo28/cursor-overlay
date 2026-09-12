@@ -5,12 +5,11 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const CONFIG_FILE = path.join(__dirname, 'config.json');
 const POLL_MS = 3000;
 
-function loadConfig() {
+function loadConfig(file) {
   let cfg = {};
-  try { cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); } catch {}
+  try { cfg = JSON.parse(fs.readFileSync(file, 'utf8')); } catch {}
   if (!cfg.supabaseUrl || !cfg.anonKey) return null;
   cfg.resultsDir = cfg.resultsDir || defaultResultsDir();
   return cfg;
@@ -53,14 +52,17 @@ async function save(cfg, d, log) {
   return file;
 }
 
-// state: which deliverable ids we already have, so restarts don't re-download or re-toast
+// state: deliverable id -> local file, so restarts don't re-download or re-toast, and the feed can open local copies
 function stateFile(cfg) { return path.join(cfg.resultsDir, '.synced.json'); }
 function loadState(cfg) {
-  try { return new Set(JSON.parse(fs.readFileSync(stateFile(cfg), 'utf8'))); } catch { return new Set(); }
+  try {
+    const j = JSON.parse(fs.readFileSync(stateFile(cfg), 'utf8'));
+    return Array.isArray(j) ? Object.fromEntries(j.map(id => [id, null])) : j;   // older format: plain id list
+  } catch { return {}; }
 }
 function saveState(cfg, seen) {
   fs.mkdirSync(cfg.resultsDir, { recursive: true });
-  fs.writeFileSync(stateFile(cfg), JSON.stringify([...seen]));
+  fs.writeFileSync(stateFile(cfg), JSON.stringify(seen));
 }
 
 async function fetchNew(cfg) {
@@ -70,12 +72,12 @@ async function fetchNew(cfg) {
   return r.json();
 }
 
-// onResult({ name, file, dir, kind, title }) fires once per new deliverable — main.js turns it into a toast
-function start({ log, onResult }) {
-  const cfg = loadConfig();
-  if (!cfg) { log('results: no config.json (supabaseUrl, anonKey) — results sync off'); return null; }
+// onResult({ title, dir, names }) fires once per task that got new deliverables — main.js turns it into a toast
+function start({ log, onResult, configFile }) {
+  const cfg = loadConfig(configFile);
+  if (!cfg) { log('results: no config (supabaseUrl, anonKey) at', configFile, '— results sync off'); return null; }
   const seen = loadState(cfg);
-  let quiet = seen.size === 0;                                   // first run: pull history silently
+  let quiet = Object.keys(seen).length === 0;                    // first run: pull history silently
   log('results: syncing to', cfg.resultsDir, quiet ? '(first run: pulling everything, no toasts)' : '');
 
   let busy = false;
@@ -84,23 +86,27 @@ function start({ log, onResult }) {
     busy = true;
     try {
       const rows = (await fetchNew(cfg)).reverse();             // oldest first
+      const byTask = new Map();
       let dirty = false;
       for (const d of rows) {
-        if (seen.has(d.id)) continue;
+        if (d.id in seen) continue;
         try {
           const file = await save(cfg, d, log);
-          seen.add(d.id); dirty = true;
-          if (!quiet) onResult({ name: d.name, file, dir: path.dirname(file), kind: d.kind, title: d.tasks && d.tasks.title });
+          seen[d.id] = file; dirty = true;
+          const g = byTask.get(d.task_id) || { title: d.tasks && d.tasks.title, dir: path.dirname(file), names: [] };
+          g.names.push(d.kind === 'pr' ? 'PR' : d.kind === 'text' ? 'summary' : d.name);
+          byTask.set(d.task_id, g);
         } catch (e) { log('results: save failed', d.id, e.message); }
       }
       if (dirty) saveState(cfg, seen);
+      if (!quiet) for (const g of byTask.values()) onResult(g);
       quiet = false;
     } catch (e) { log('results: poll failed', e.message); }
     busy = false;
   }
   tick();
   const timer = setInterval(tick, POLL_MS);
-  return { stop: () => clearInterval(timer), dir: cfg.resultsDir };
+  return { stop: () => clearInterval(timer), dir: cfg.resultsDir, cfg, localFiles: () => ({ ...seen }) };
 }
 
-module.exports = { start, defaultResultsDir };
+module.exports = { start, defaultResultsDir, loadConfig };
