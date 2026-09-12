@@ -114,7 +114,7 @@ export default async function Landing({ signedIn = false }: { signedIn?: boolean
           <div className="surface p-6 grid md:grid-cols-[1fr_auto] gap-4 items-center" style={{ background: "linear-gradient(90deg, rgba(233,162,59,.08), transparent 60%), var(--color-panel)" }}>
             <div>
               <h2 className="font-semibold text-lg">The board</h2>
-              <p className="text-sm text-dim mt-1">Every task, every worker, every result — live. Answer a worker&apos;s question from the board, the panel, or the copilot.</p>
+              <p className="text-sm text-dim mt-1">Every task, every worker, every result — live. Answer a worker&apos;s question from the board, the panel, or your Ambiguous workspace.</p>
             </div>
             <Link href={signedIn ? "/dashboard" : "/login"} className="btn-primary">{signedIn ? "Open your board" : "Sign in with GitHub"}</Link>
           </div>
@@ -123,7 +123,7 @@ export default async function Landing({ signedIn = false }: { signedIn?: boolean
 
       <footer className="px-6 py-5 text-xs text-dim border-t border-line flex flex-wrap gap-x-4 gap-y-1">
         <span>Built by 3 humans + 3 AIs, coordinated by the same tool.</span>
-        <span className="ml-auto">OpenAI · OpenRouter · Supabase · Vercel · CopilotKit · Exa · Ambiguous</span>
+        <span className="ml-auto">Ambiguous · Qwen · Supabase · Vercel · OpenRouter · Exa</span>
       </footer>
     </div>
   );

@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { authorized, attachmentUrl, download, execute, parseOutput, NeedsHuman, tick } from '../web/lib/worker.mjs';
-import { copilotProvider, modelFetch } from '../web/lib/copilot-provider.mjs';
 
 const origin = 'https://project.supabase.co';
 test('worker trigger denies missing and incorrect tokens', () => {
@@ -51,13 +50,6 @@ test('image transcription uses vision and embeds the attached image', async () =
 test('truncated model output never becomes done', async () => {
   await assert.rejects(execute({title:'Task'}, [], {env:{LLM_API_KEY:'x'},fetcher:async()=>Response.json({choices:[{finish_reason:'length'}]})}), NeedsHuman);
 });
-test('copilot prefers Qwen and never pairs OpenRouter key with generic endpoint', async () => {
-  const config=copilotProvider({LLM_API_KEY:'qwen-key',LLM_BASE_URL:'https://qwen.test/v1',LLM_MODEL:'qwen',OPENROUTE_API_KEY:'old'});
-  assert.equal(config.apiKey,'qwen-key'); assert.equal(config.model,'qwen');
-  assert.equal(copilotProvider({OPENROUTE_API_KEY:'old',LLM_BASE_URL:'https://qwen.test/v1'}).baseURL,'https://openrouter.ai/api/v1');
-  await modelFetch(async(url,init)=>{assert.equal(JSON.parse(init.body).chat_template_kwargs.enable_thinking,false);})('https://qwen.test/v1/chat/completions',{body:JSON.stringify({model:'qwen3.8-27b',stream:true})});
-});
-
 // Stateful query fake tests lifecycle and competing tick calls, not just generated JSON.
 function database(seed = {}) {
   const state={workers:[],tasks:[],events:[],uploads:[],...seed};

@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { useCopilotReadable, useCopilotAction, useCopilotChatSuggestions, useCopilotAdditionalInstructions } from "@copilotkit/react-core";
 import { createClient } from "@/lib/supabase/client";
 import { ago, TASK_SELECT, type Task, type Worker } from "@/lib/types";
+import type { AmbiguousState } from "@/lib/ambiguous";
 
 const COLUMNS: { key: string; label: string; statuses: Task["status"][] }[] = [
   { key: "open", label: "Open", statuses: ["open"] },
@@ -11,7 +11,7 @@ const COLUMNS: { key: string; label: string; statuses: Task["status"][] }[] = [
   { key: "done", label: "Done", statuses: ["done", "failed"] },
 ];
 
-export default function Board({ initialTasks, initialWorkers, user }: { initialTasks: Task[]; initialWorkers: Worker[]; user: string }) {
+export default function Board({ initialTasks, initialWorkers, user, ambiguous, ambiguousBase }: { initialTasks: Task[]; initialWorkers: Worker[]; user: string; ambiguous?: AmbiguousState | null; ambiguousBase?: string }) {
   const supabase = useMemo(() => createClient(), []);
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
   const [workers, setWorkers] = useState<Worker[]>(initialWorkers);
@@ -63,58 +63,6 @@ export default function Board({ initialTasks, initialWorkers, user }: { initialT
   const cost = tasks.reduce((s, t) => s + (t.events || []).reduce((a, e) => a + Number(e.cost_usd || 0), 0), 0);
   const doneToday = tasks.filter((t) => t.status === "done" && Date.now() - new Date(t.updated_at).getTime() < 86400e3).length;
 
-  // Persona: a crew chief reporting status, not a generic assistant.
-  useCopilotAdditionalInstructions({
-    instructions:
-      "You are the Crewboard copilot. You report on a live board of tasks worked by AI agents. " +
-      "Be terse - one or two sentences unless asked for detail. Refer to tasks by title, never by id. " +
-      "When a task needs a human answer, offer to send one. Never invent tasks, workers or costs: " +
-      "if it is not in the board state you were given, say you do not see it.",
-  });
-
-  // Clickable starter prompts, so the board can be driven without typing.
-  useCopilotChatSuggestions({
-    instructions:
-      "Suggest short questions about the current board: what is blocked, what shipped, " +
-      "what the crew has spent, or which worker is busiest. Base them on the actual tasks present.",
-    minSuggestions: 2,
-    maxSuggestions: 3,
-  });
-
-  // --- CopilotKit: the sidebar sees exactly what the board sees ---
-  useCopilotReadable({
-    description: "Live Crewboard state: every task, its status, the worker on it, its deliverables, and spend so far.",
-    value: {
-      totalCostUsd: Number(cost.toFixed(4)),
-      doneToday,
-      workers: workers.map((w) => ({ name: w.name, kind: w.kind, status: w.status, capabilities: w.capabilities })),
-      tasks: tasks.map((t) => ({
-        id: t.id,
-        title: t.title,
-        status: t.status,
-        capability: t.capability,
-        worker: t.worker?.name ?? null,
-        capturedFrom: t.source_app,
-        deliverables: (t.deliverables || []).map((d) => ({ name: d.name, kind: d.kind, url: d.url })),
-      })),
-    },
-  });
-
-  // The copilot can unblock a needs-human task through the board's own answer path.
-  useCopilotAction({
-    name: "answerBlockedTask",
-    description: "Reply to a task whose status is needs-human, so its worker can continue.",
-    parameters: [
-      { name: "taskId", type: "string", description: "id of the needs-human task" },
-      { name: "text", type: "string", description: "the answer to give the worker" },
-    ],
-    handler: async ({ taskId, text }) => {
-      await answer(String(taskId), String(text));
-      return `answered ${taskId}`;
-    },
-  });
-
-
   const online = workers.filter((w) => w.status !== "dead" && Date.now() - new Date(w.last_seen).getTime() < 60000).length;
   const dots: Record<string, string> = { open: "#c9c9cf", working: "var(--color-amber)", ask: "var(--color-ask)", done: "var(--color-ok)" };
 
@@ -154,15 +102,44 @@ export default function Board({ initialTasks, initialWorkers, user }: { initialT
             </section>
           );
         })}
-        <aside className="surface">
+        <aside className="flex flex-col gap-3">
+          <AmbiguousTile st={ambiguous ?? null} base={ambiguousBase ?? "https://app.ambiguous.ai"} />
+          <section className="surface">
           <h2 className="col-head"><span className="dot" style={{ background: "#8fb0ff" }} />Workers<span className="n">{online}/{workers.length}</span></h2>
           <ul className="p-2 flex flex-col gap-2">
             {workers.map((w) => <WorkerCard key={w.id} w={w} busy={tasks.filter((t) => t.worker_id === w.id && (t.status === "claimed" || t.status === "running")).length} />)}
             {workers.length === 0 && <li className="empty"><span className="glyph" />No workers connected.<span className="text-[11px]">Start one: <code className="text-[#c9c9cf]">backend/start-worker.ps1</code></span></li>}
           </ul>
+          </section>
         </aside>
       </div>
     </div>
+  );
+}
+
+// Your seat in the team's Ambiguous workspace + your own coworker; provisioned on first visit.
+function AmbiguousTile({ st, base }: { st: AmbiguousState | null; base: string }) {
+  const ok = st?.status === "ready";
+  const label = !st || st.status === "unconfigured" ? "not connected" : st.status === "error" ? "retrying" : st.status === "invited" ? "invite sent" : "connected";
+  return (
+    <section className="surface p-3">
+      <div className="flex items-center gap-2">
+        <span className="avatar codex !w-7 !h-7 !text-[11px]">A</span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 text-sm font-semibold">Ambiguous <span className={`live-dot ${ok ? "" : "off"}`} /></div>
+          <div className="text-[11px] text-dim">{label}{st?.agent_name ? ` · ${st.agent_name}` : ""}</div>
+        </div>
+      </div>
+      {st?.status === "unconfigured" && <p className="text-[11px] text-dim mt-2">Set <code>AMBIGUOUS_ADMIN_KEY</code> on Vercel and every sign-up gets a workspace seat and a coworker.</p>}
+      {st?.status === "error" && <p className="text-[11px] text-bad mt-2 break-words">{st.error}</p>}
+      {(st?.status === "invited" || ok) && (
+        <div className="flex flex-col gap-1.5 mt-2">
+          {st?.invite_url && <a className="btn !py-1.5 !text-xs" href={st.invite_url} target="_blank" rel="noreferrer">Accept your invite ↗</a>}
+          <a className="btn !py-1.5 !text-xs" href={base} target="_blank" rel="noreferrer">Open workspace ↗</a>
+          <p className="text-[11px] text-dim">Results are posted to <b>#crewboard</b>; mention your coworker there to give it work.</p>
+        </div>
+      )}
+    </section>
   );
 }
 

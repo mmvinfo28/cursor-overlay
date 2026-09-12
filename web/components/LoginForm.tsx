@@ -71,7 +71,7 @@ function Login({ auth0 }: { auth0: boolean }) {
           <button className="w-full text-xs text-dim hover:text-amber py-1" type="button" onClick={magicLink} disabled={busy}>Email me a magic link instead</button>
           {msg && <p className="text-xs text-amber-2 bg-amber/10 border border-amber/30 rounded-lg px-3 py-2">{msg}</p>}
         </form>
-        <p className="text-center text-[11px] text-dim mt-4">By signing in you get the board, the results library and the copilot.</p>
+        <p className="text-center text-[11px] text-dim mt-4">By signing in you get the board, the results library and a seat in the crew&apos;s Ambiguous workspace.</p>
       </div>
     </main>
   );

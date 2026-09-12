@@ -1,6 +1,5 @@
 import Link from "next/link";
 import type { Viewer } from "@/lib/session";
-import Copilot from "@/components/Copilot";
 
 export default function Shell({ viewer, active, children }: { viewer: Viewer; active: "board" | "insights" | "results"; children: React.ReactNode }) {
   const tab = (href: string, key: string, label: string) => (
@@ -27,9 +26,7 @@ export default function Shell({ viewer, active, children }: { viewer: Viewer; ac
             : <form action="/supabase/signout" method="post"><button className="text-xs text-dim hover:text-amber" type="submit">sign out</button></form>}
         </div>
       </header>
-      <main className="flex-1 p-5">
-        <Copilot>{children}</Copilot>
-      </main>
+      <main className="flex-1 p-5">{children}</main>
     </div>
   );
 }
