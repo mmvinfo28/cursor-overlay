@@ -23,8 +23,12 @@ let win;
 let feed = null;
 let tray = null;
 let selecting = false;
+let taskLabelActive = false;
+let fieldReaderPrimed = false;
 let uiaHelper = null;
 let resultsSync = null;
+
+ipcMain.on('task-label-state', (_, active) => { taskLabelActive = active === true; });
 
 // Cheap local filter: does the field look like it might carry an actionable commitment?
 // Runs before any model call. A strong signal (date / time / filename / promise verb) passes;
@@ -145,9 +149,11 @@ function onFieldLine(line) {
   let f;
   try { f = JSON.parse(line); } catch { return log('uia parse fail', line.slice(0, 120)); }
   const { pass, signals } = localFilter(f.text || '');
+  const signalPass = fieldReaderPrimed && pass;
+  fieldReaderPrimed = true;
   log('field', f.app, f.type, `${f.len}ch`, f.src, pass ? 'PASS' : 'silent', signals.join(','));
   if (!win.isDestroyed()) {
-    win.webContents.send('signal', { pass });
+    win.webContents.send('signal', { pass: signalPass, text: f.text || '' });
     if (showPanel) win.webContents.send('field', { ...f, pass, signals });
   }
 }
@@ -201,6 +207,12 @@ function saveText(text) {
 // otherwise the user drags a rectangle (Esc / right-click cancels)
 async function onHotkey() {
   if (selecting) return;
+  if (taskLabelActive) {
+    taskLabelActive = false;
+    log('task label confirmed');
+    if (!win.isDestroyed()) win.webContents.send('task-label-confirmed');
+    return;
+  }
   startSelect();
   const text = await grabSelectedText().catch(e => { log('text grab failed', e.message); return null; });
   if (text && selecting) {
