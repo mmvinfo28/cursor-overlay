@@ -74,10 +74,30 @@ function create({ cfg, log, onToast, onProposal, onSent, onUpdate }) {
     return null;
   }
 
+  // ---- attachments: straight into Supabase Storage (anon upload policy), public URL back ----
+  async function upload(a) {
+    if (a.url && !a.base64) return { name: a.name, url: a.url, mime: a.mime || 'text/uri-list', kind: a.kind || 'link' };
+    const safe = String(a.name || 'file').replace(/[^\w.-]+/g, '_').slice(0, 80);
+    const key = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}/${safe}`;
+    const buf = Buffer.from(a.base64, 'base64');
+    const r = await fetch(`${cfg.supabaseUrl}/storage/v1/object/attachments/${key}`, {
+      method: 'POST', headers: { ...sb, 'Content-Type': a.mime || 'application/octet-stream', 'x-upsert': 'false' }, body: buf
+    });
+    if (!r.ok) throw new Error(`upload ${r.status} ${(await r.text()).slice(0, 100)}`);
+    return { name: a.name, url: `${cfg.supabaseUrl}/storage/v1/object/public/attachments/${key}`, mime: a.mime || null, size: buf.length, kind: 'file' };
+  }
+
   // ---- send ----
-  async function send({ title, context, app, cropPng }) {
+  async function send({ title, context, app, cropPng, attachments = [] }) {
     const body = { title, context, source_app: app || null, created_by: who };
     if (cropPng) body.crop_base64 = cropPng.toString('base64');
+    if (attachments.length) {
+      body.attachments = [];
+      for (const a of attachments) {
+        try { body.attachments.push(await upload(a)); }
+        catch (e) { log('attachment failed', a.name, e.message); onToast({ text: `✗ ${a.name}: ${e.message}`, kind: 'fail' }); }
+      }
+    }
     const r = await fetch(`${api}/api/task`, { method: 'POST', headers, body: JSON.stringify(body) });
     if (!r.ok) throw new Error(`task ${r.status} ${(await r.text()).slice(0, 120)}`);
     const { id } = await r.json();

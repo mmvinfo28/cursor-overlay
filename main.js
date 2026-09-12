@@ -29,6 +29,8 @@ let fieldReaderPrimed = false;
 let uiaHelper = null;
 let resultsSync = null;
 let crew = null;                 // the spine (crew.js): propose → send → track
+let compose = null;              // "Create a task" composer: title, context, attachments
+let composing = false;
 let lastField = { app: null, text: '' };
 
 ipcMain.on('task-label-state', (_, active) => { taskLabelActive = active === true; });
@@ -203,14 +205,6 @@ function toastAtCursor({ text, kind, ttl }) {
   if (!win.isDestroyed()) win.webContents.send('toast', { text, x: p.x, y: p.y, kind, ttl });
 }
 
-// double-tap while a proposal is showing: the proposal is the task. Otherwise selection / crop become the task.
-async function sendProposal(p) {
-  const c = screen.getCursorScreenPoint();
-  const crop = await captureRect(quickRect(c.x, c.y)).catch(e => { log('crop for task failed', e.message); return null; });
-  win.webContents.send('fired');
-  await crew.send({ title: p.title, context: p.context, app: p.app, cropPng: crop && crop.toPNG() });
-}
-
 function saveText(text) {
   fs.mkdirSync(CAPTURE_DIR, { recursive: true });
   const file = path.join(CAPTURE_DIR, `text-${Date.now()}.txt`);
@@ -227,20 +221,23 @@ async function onHotkey() {
   if (selecting) return;
   // double-tap while the "Create a task" pill is up: the proposal (model title) or, if the model hasn't answered
   // yet, the current line itself becomes the task. The pill flips to "Task selected", crew.js sends it.
+  if (composing) { compose.webContents.send('compose-send-now'); return; }   // second double-tap = send as is
   const p = crew && (crew.takeProposal() || (taskLabelActive ? crew.fromField(lastField) : null));
   if (p) {
     taskLabelActive = false;
     log('task confirmed', p.title);
     if (!win.isDestroyed()) win.webContents.send('task-label-confirmed');
-    return sendProposal(p).catch(e => { log('SEND FAIL', e.message); toastAtCursor({ text: `✗ could not send: ${e.message}`, kind: 'fail' }); });
+    const c = screen.getCursorScreenPoint();
+    const crop = await captureRect(quickRect(c.x, c.y)).catch(e => { log('crop failed', e.message); return null; });
+    win.webContents.send('fired');
+    return openCompose({ title: p.title, context: p.context, app: p.app, cropPng: crop && crop.toPNG() });
   }
   startSelect();
   const text = await grabSelectedText().catch(e => { log('text grab failed', e.message); return null; });
   if (text && selecting) {
     endSelect();
     saveText(text);
-    if (crew) crew.send({ title: text.replace(/\s+/g, ' ').trim().slice(0, 80), context: text, app: lastField.app })
-      .catch(e => { log('SEND FAIL', e.message); toastAtCursor({ text: `✗ could not send: ${e.message}`, kind: 'fail' }); });
+    if (crew) openCompose({ title: text.replace(/\s+/g, ' ').trim().slice(0, 80), context: text, app: lastField.app });
   }
 }
 
@@ -329,6 +326,65 @@ function createFeed() {
   feed.loadFile('feed.html');
   feed.on('close', e => { if (!app.quitting) { e.preventDefault(); feed.hide(); } });
 }
+
+// ---- composer: small focusable window at the cursor. Enter/Send → crew.send, Esc → nothing happens ----
+function createCompose() {
+  compose = new BrowserWindow({
+    width: 480, height: 400, show: false, frame: false, transparent: true, alwaysOnTop: true, skipTaskbar: true,
+    resizable: false, minimizable: false, maximizable: false, hasShadow: true,
+    webPreferences: { nodeIntegration: true, contextIsolation: false }
+  });
+  compose.setAlwaysOnTop(true, 'screen-saver');
+  compose.loadFile('compose.html');
+  compose.on('blur', () => {});                       // stays open until Send / Esc / ✕
+}
+
+let pendingTask = null;          // what the composer is editing: { app }
+function openCompose({ title, context, app, cropPng }) {
+  composing = true;
+  pendingTask = { app };
+  const c = screen.getCursorScreenPoint();
+  const { workArea } = screen.getDisplayNearestPoint(c);
+  const [w, h] = compose.getSize();
+  const x = Math.max(workArea.x + 8, Math.min(c.x + 20, workArea.x + workArea.width - w - 8));
+  const y = Math.max(workArea.y + 8, Math.min(c.y + 20, workArea.y + workArea.height - h - 8));
+  compose.setPosition(Math.round(x), Math.round(y));
+  compose.webContents.send('compose-open', { title, context, app, crop: cropPng ? { base64: cropPng.toString('base64'), size: cropPng.length } : null });
+  compose.show(); compose.focus();
+}
+function closeCompose() { composing = false; pendingTask = null; if (compose && compose.isVisible()) compose.hide(); }
+
+// "Add context from…" — each source answers with text (appended to context) or an attachment
+async function composeAdd(kind) {
+  const reply = a => compose.webContents.send('compose-attach', a);
+  if (kind === 'file') {
+    const r = await dialog.showOpenDialog(compose, { properties: ['openFile', 'multiSelections'] });
+    for (const f of r.filePaths || []) {
+      const st = fs.statSync(f);
+      if (st.size > 25 * 1024 * 1024) { toastAtCursor({ text: `✗ ${path.basename(f)} is over 25 MB`, kind: 'fail' }); continue; }
+      const ext = path.extname(f).toLowerCase();
+      const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.pdf': 'application/pdf', '.csv': 'text/csv', '.txt': 'text/plain', '.md': 'text/markdown', '.json': 'application/json',
+        '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }[ext] || 'application/octet-stream';
+      reply({ name: path.basename(f), mime, size: st.size, base64: fs.readFileSync(f).toString('base64') });
+    }
+    compose.focus();
+  } else if (kind === 'clipboard') {
+    const img = clipboard.readImage();
+    const text = clipboard.readText().trim();
+    if (!img.isEmpty()) { const png = img.toPNG(); reply({ name: 'clipboard.png', mime: 'image/png', size: png.length, base64: png.toString('base64') }); }
+    else if (text) reply({ text });
+    else toastAtCursor({ text: 'Clipboard is empty', kind: 'fail' });
+  } else if (kind === 'field') {
+    const t = (lastField.text || '').trim();
+    if (t) reply({ text: t.slice(0, 4000) }); else toastAtCursor({ text: 'No text read from the last field', kind: 'fail' });
+  } else if (kind === 'region') {
+    compose.hide();                                    // let the user drag on the overlay, then come back
+    await sleep(150);
+    startSelect();
+    regionForCompose = true;
+  }
+}
+let regionForCompose = false;
 
 function toggleFeed(focusNew) {
   if (feed.isVisible() && feed.isFocused() && !focusNew) return feed.hide();
@@ -430,6 +486,7 @@ app.whenReady().then(() => {
   if (process.platform === 'darwin' && app.dock) app.dock.hide();  // tray app, no dock icon
   createOverlay();
   createFeed();
+  createCompose();
   createTray();
   startHelpers();
   startUpdater();
@@ -460,11 +517,27 @@ app.whenReady().then(() => {
     endSelect();
     captureRect(rect).then(crop => {
       if (!crop || !crew) return;
+      const png = crop.toPNG();
+      if (regionForCompose) {                        // came from the composer's "Screen region" button
+        regionForCompose = false;
+        compose.webContents.send('compose-attach', { name: `region-${Date.now()}.png`, mime: 'image/png', size: png.length, base64: png.toString('base64') });
+        compose.show(); compose.focus();
+        return;
+      }
       const app = lastField.app || 'screen';
-      return crew.send({ title: `Screenshot from ${app}`, context: lastField.text ? lastField.text.slice(0, 500) : null, app, cropPng: crop.toPNG() });
-    }).catch(e => { log('CAPTURE/SEND FAIL', e.message); toastAtCursor({ text: `✗ ${e.message}`, kind: 'fail' }); });
+      openCompose({ title: `Screenshot from ${app}`, context: lastField.text ? lastField.text.slice(0, 500) : '', app, cropPng: png });
+    }).catch(e => { log('CAPTURE FAIL', e.message); toastAtCursor({ text: `✗ ${e.message}`, kind: 'fail' }); });
   });
-  ipcMain.on('cancel', () => { log('cancel'); endSelect(); });
+  ipcMain.on('cancel', () => { log('cancel'); endSelect(); if (regionForCompose) { regionForCompose = false; compose.show(); compose.focus(); } });
+
+  ipcMain.on('compose-add', (_, kind) => composeAdd(kind).catch(e => { log('compose add failed', kind, e.message); }));
+  ipcMain.on('compose-cancel', () => { log('compose cancel'); closeCompose(); });
+  ipcMain.on('compose-send', (_, { title, context, attachments }) => {
+    const app = pendingTask && pendingTask.app;
+    closeCompose();
+    crew.send({ title, context, app, attachments })
+      .catch(e => { log('SEND FAIL', e.message); toastAtCursor({ text: `✗ could not send: ${e.message}`, kind: 'fail' }); });
+  });
 
   if (process.argv.includes('--selftest')) {
     const p = screen.getCursorScreenPoint();
@@ -482,6 +555,26 @@ app.whenReady().then(() => {
         const file = path.join(CAPTURE_DIR, `feed-${tab}.png`);
         fs.writeFileSync(file, img.toPNG());
         log('FEED SHOT', file);
+      }
+    }, 1500);
+  }
+  if (process.argv.includes('--selftest-compose')) {           // open the composer with sample content, screenshot it
+    setTimeout(async () => {
+      openCompose({ title: "Compare the three vendor quotes", context: "I'll compare the three vendor quotes and send Ana a sheet by Monday", app: 'Slack' });
+      await sleep(1500);
+      const img = await compose.webContents.capturePage();
+      fs.mkdirSync(CAPTURE_DIR, { recursive: true });
+      const file = path.join(CAPTURE_DIR, 'compose.png');
+      fs.writeFileSync(file, img.toPNG());
+      log('COMPOSE SHOT', file);
+      if (process.argv.includes('--selftest-compose-send')) {   // attach a crop + a link, then send as the user would
+        const c = screen.getCursorScreenPoint();
+        const crop = await captureRect(quickRect(c.x, c.y));
+        compose.webContents.send('compose-attach', { name: 'selftest-crop.png', mime: 'image/png', size: crop.toPNG().length, base64: crop.toPNG().toString('base64') });
+        compose.webContents.send('compose-attach', { name: 'https://example.com/spec', url: 'https://example.com/spec', kind: 'link' });
+        compose.webContents.send('compose-attach', { text: 'Extra context line from the clipboard.' });
+        await sleep(500);
+        compose.webContents.send('compose-send-now');
       }
     }, 1500);
   }

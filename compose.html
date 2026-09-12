@@ -1,0 +1,122 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8">
+<style>
+  :root { --amber:#E9A23B; --bg:#161618; --card:#1e1e21; --line:#2c2c30; --txt:#e6e6e6; --dim:#8a8a90; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--txt); font:13px/1.45 system-ui, Segoe UI, sans-serif; overflow:hidden; }
+  * { box-sizing:border-box; }
+  #wrap { display:flex; flex-direction:column; height:100%; border:1px solid rgba(233,162,59,.55); border-radius:12px; overflow:hidden; }
+  #hd { display:flex; align-items:center; gap:8px; padding:9px 12px; border-bottom:1px solid var(--line); -webkit-app-region:drag; user-select:none; }
+  #hd .ring { width:12px; height:12px; border-radius:50%; border:2px solid var(--amber); background:rgba(233,162,59,.22); }
+  #hd .t { font-weight:600; font-size:12px; }
+  #hd .app { color:var(--dim); font-size:11px; }
+  #hd button { -webkit-app-region:no-drag; margin-left:auto; background:none; border:0; color:var(--dim); font-size:14px; cursor:pointer; padding:0 4px; }
+  #hd button:hover { color:#fff; }
+  #body { padding:10px 12px; display:flex; flex-direction:column; gap:8px; flex:1; min-height:0; }
+  input, textarea { width:100%; background:#0f0f11; border:1px solid var(--line); color:var(--txt); padding:7px 9px; border-radius:8px; font:inherit; outline:none; resize:none; }
+  input:focus, textarea:focus { border-color:var(--amber); }
+  #title { font-weight:600; }
+  #ctx { flex:1; min-height:70px; }
+  .lbl { font-size:11px; color:var(--dim); margin-bottom:-4px; }
+  #srcs { display:flex; flex-wrap:wrap; gap:5px; }
+  #srcs button { background:#0f0f11; border:1px solid var(--line); color:#ddd; padding:4px 9px; border-radius:7px; font:inherit; font-size:12px; cursor:pointer; }
+  #srcs button:hover { border-color:var(--amber); }
+  #att { display:flex; flex-wrap:wrap; gap:5px; }
+  #att:empty { display:none; }
+  .chip { display:inline-flex; align-items:center; gap:6px; background:#0f0f11; border:1px solid var(--line); padding:3px 8px; border-radius:7px; font-size:12px; max-width:100%; }
+  .chip img { width:22px; height:22px; object-fit:cover; border-radius:4px; }
+  .chip span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:180px; }
+  .chip b { color:var(--dim); font-weight:400; font-size:11px; }
+  .chip .x { color:var(--dim); cursor:pointer; }
+  .chip .x:hover { color:#e06e6e; }
+  #ft { display:flex; align-items:center; gap:8px; padding:8px 12px; border-top:1px solid var(--line); }
+  #ft .hint { color:var(--dim); font-size:11px; }
+  #ft .sp { flex:1; }
+  #cancel { background:none; border:1px solid var(--line); color:#ddd; padding:6px 12px; border-radius:8px; font:inherit; cursor:pointer; }
+  #send { background:var(--amber); color:#1a1a1a; border:0; padding:6px 14px; border-radius:8px; font:inherit; font-weight:600; cursor:pointer; }
+  #send:disabled { opacity:.5; }
+  kbd { background:#0f0f11; border:1px solid var(--line); border-radius:4px; padding:0 4px; font:11px ui-monospace, Consolas, monospace; }
+</style></head>
+<body>
+<div id="wrap">
+  <div id="hd"><span class="ring"></span><span class="t">Create a task</span><span class="app" id="app"></span><button id="close" title="Esc">✕</button></div>
+  <div id="body">
+    <input id="title" placeholder="What should the crew do?" />
+    <div class="lbl">Context</div>
+    <textarea id="ctx" placeholder="What the crew needs to know…"></textarea>
+    <div class="lbl">Add context from</div>
+    <div id="srcs">
+      <button data-k="file">📎 File</button>
+      <button data-k="region">✂ Screen region</button>
+      <button data-k="clipboard">📋 Clipboard</button>
+      <button data-k="field">🪟 This field</button>
+      <button data-k="link">🔗 Link</button>
+    </div>
+    <div id="att"></div>
+  </div>
+  <div id="ft"><span class="hint"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> or <kbd>⇧⇧</kbd> send · <kbd>Esc</kbd> cancel</span><span class="sp"></span><button id="cancel">Cancel</button><button id="send">Send to crew</button></div>
+</div>
+<script>
+  const { ipcRenderer } = require('electron');
+  const $ = id => document.getElementById(id);
+  let attachments = [];      // { id, name, mime, size, base64?, url?, thumb? }
+  let seq = 0;
+
+  function renderAtt() {
+    $('att').innerHTML = '';
+    for (const a of attachments) {
+      const el = document.createElement('span');
+      el.className = 'chip';
+      el.innerHTML = `${a.thumb ? `<img src="${a.thumb}">` : a.mime && a.mime.startsWith('image/') ? '🖼' : a.kind === 'link' ? '🔗' : '📎'} <span title="${a.name}">${a.name}</span>${a.size ? `<b>${(a.size / 1024).toFixed(0)} KB</b>` : ''}<span class="x" title="remove">✕</span>`;
+      el.querySelector('.x').onclick = () => { attachments = attachments.filter(x => x.id !== a.id); renderAtt(); };
+      $('att').appendChild(el);
+    }
+  }
+
+  ipcRenderer.on('compose-open', (_, p) => {
+    attachments = [];
+    $('title').value = p.title || '';
+    $('ctx').value = p.context || '';
+    $('app').textContent = p.app ? 'from ' + p.app : '';
+    if (p.crop) attachments.push({ id: ++seq, name: 'cursor-crop.png', mime: 'image/png', size: p.crop.size, base64: p.crop.base64, thumb: 'data:image/png;base64,' + p.crop.base64 });
+    renderAtt();
+    $('send').disabled = false;
+    ($('title').value ? $('ctx') : $('title')).focus();
+  });
+
+  // main.js answers add requests with one of: {text} appended to context, or an attachment
+  ipcRenderer.on('compose-attach', (_, a) => {
+    if (a.text) { const c = $('ctx'); c.value = (c.value.trim() ? c.value.trimEnd() + '\n\n' : '') + a.text; c.focus(); return; }
+    attachments.push({ id: ++seq, ...a, thumb: a.mime && a.mime.startsWith('image/') && a.base64 ? 'data:' + a.mime + ';base64,' + a.base64 : null });
+    renderAtt();
+  });
+
+  $('srcs').addEventListener('click', e => {
+    const k = e.target.closest('button') && e.target.closest('button').dataset.k;
+    if (!k) return;
+    if (k === 'link') {
+      const url = prompt('Link to include:');
+      if (url && url.trim()) { attachments.push({ id: ++seq, kind: 'link', name: url.trim(), url: url.trim() }); renderAtt(); }
+      return;
+    }
+    ipcRenderer.send('compose-add', k);
+  });
+
+  function send() {
+    const title = $('title').value.trim();
+    if (!title) return $('title').focus();
+    $('send').disabled = true;
+    ipcRenderer.send('compose-send', { title, context: $('ctx').value.trim(), attachments: attachments.map(({ thumb, id, ...a }) => a) });
+  }
+  ipcRenderer.on('compose-send-now', send);
+  $('send').onclick = send;
+  $('cancel').onclick = () => ipcRenderer.send('compose-cancel');
+  $('close').onclick = () => ipcRenderer.send('compose-cancel');
+  window.addEventListener('keydown', e => {
+    if (e.key === 'Escape') ipcRenderer.send('compose-cancel');
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) send();
+    if (e.key === 'Enter' && e.target.id === 'title') { e.preventDefault(); $('ctx').focus(); }
+  });
+</script>
+</body>
+</html>

@@ -13,6 +13,7 @@ export type Task = {
   context: string | null;
   source_app: string | null;
   crop_url: string | null;
+  attachments: { name: string; url: string; mime: string | null; size: number | null; kind: string }[];
   capability: string;
   status: TaskStatus;
   worker_id: string | null;

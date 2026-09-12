@@ -3,7 +3,7 @@ import { createClient as createAnon } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
 
 // Called by the desktop overlay (no browser session). Creates a task, optionally with a screenshot crop.
-// Body: { title, context?, source_app?, crop_base64?, created_by? }
+// Body: { title, context?, source_app?, crop_base64?, created_by?, attachments?: [{name,url,mime,size,kind}] }
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
   if (!body?.title) return NextResponse.json({ error: "title required" }, { status: 400 });
@@ -20,7 +20,16 @@ export async function POST(request: Request) {
 
   const { data, error } = await db
     .from("tasks")
-    .insert({ title: String(body.title).slice(0, 120), context: body.context ?? null, source_app: body.source_app ?? null, crop_url, created_by: body.created_by ?? "overlay" })
+    .insert({
+      title: String(body.title).slice(0, 120),
+      context: body.context ?? null,
+      source_app: body.source_app ?? null,
+      crop_url,
+      created_by: body.created_by ?? "overlay",
+      attachments: Array.isArray(body.attachments)
+        ? body.attachments.slice(0, 20).map((a: { name?: string; url?: string; mime?: string; size?: number; kind?: string }) => ({ name: String(a.name ?? "file").slice(0, 200), url: String(a.url ?? ""), mime: a.mime ?? null, size: a.size ?? null, kind: a.kind ?? "file" }))
+        : [],
+    })
     .select("id")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

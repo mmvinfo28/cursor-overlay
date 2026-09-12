@@ -155,6 +155,13 @@ function Card({ t, onAnswer }: { t: Task; onAnswer: (id: string, text: string) =
       <p className="text-[11px] text-dim mt-1">{[t.worker?.name || (t.status === "open" ? "waiting for a worker" : ""), t.source_app, ago(t.created_at)].filter(Boolean).join(" · ")}</p>
       {t.context && t.context !== t.title && <p className="text-xs text-[#b8b8bc] mt-2 whitespace-pre-wrap break-words line-clamp-3">{t.context}</p>}
       {t.crop_url && <a href={t.crop_url} target="_blank" rel="noreferrer"><img src={t.crop_url} alt="" className="mt-2 rounded-md border border-line max-h-32 object-cover" /></a>}
+      {(t.attachments || []).length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {t.attachments.map((a, i) => (
+            <a key={i} className="chip" href={a.url} target="_blank" rel="noreferrer" title={a.url}>{a.kind === "link" ? "🔗" : a.mime?.startsWith("image/") ? "🖼" : "📎"} <span className="truncate">{a.name}</span></a>
+          ))}
+        </div>
+      )}
       {summary && <p className="mt-2 p-2 rounded-md bg-[#111] border border-[#262628] text-xs whitespace-pre-wrap break-words">{summary.body}</p>}
       {files.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mt-2">

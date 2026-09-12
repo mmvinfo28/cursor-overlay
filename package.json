@@ -29,6 +29,7 @@
       "crew.js",
       "overlay.html",
       "feed.html",
+      "compose.html",
       "icon.png",
       "config.default.json",
       "helpers/**"
