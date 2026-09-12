@@ -71,11 +71,12 @@ export default async function Landing({ signedIn = false }: { signedIn?: boolean
       <main className="flex-1 px-6">
         <section className="max-w-6xl mx-auto grid lg:grid-cols-[1.05fr_1fr] gap-10 items-center pt-14 pb-14">
           <div className="text-center lg:text-left fade-in">
-            <p className="text-amber text-[11px] font-bold tracking-[.22em] uppercase mb-4">AI Tinkerers Build Day</p>
-            <h1 className="text-4xl md:text-[56px] font-semibold leading-[1.05] tracking-tight">Your crew,<br className="hidden md:block" /> at the cursor.</h1>
+            <p className="text-amber text-[11px] font-bold tracking-[.22em] uppercase mb-4">From a passing thought</p>
+            <h1 className="text-4xl md:text-[56px] font-semibold leading-[1.05] tracking-tight">You say it.<br />
+              <span className="text-amber-2">The crew does it.</span></h1>
             <p className="text-dim text-lg mt-5 max-w-xl mx-auto lg:mx-0">
-              Type a commitment in Slack, tap Shift twice. A team of AI agents does the work, and the result
-              lands next to your cursor and in your files — no chat window in between.
+              Turn everyday commitments into work you can delegate. Type a promise in the app you already use,
+              tap Shift twice, and a crew of AI agents brings the result back to your cursor and your files.
             </p>
             <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center lg:justify-start items-center">
               <a href={rel?.exe ?? releases} className="btn-primary text-base px-6 py-3">
