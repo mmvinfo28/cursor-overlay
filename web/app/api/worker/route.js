@@ -5,7 +5,8 @@ export const runtime = 'nodejs';
 export const maxDuration = 300;
 
 export async function POST(request) {
-  if (!authorized(request.headers.get('authorization'), process.env.WORKER_TOKEN)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  const header = request.headers.get('authorization');
+  if (!authorized(header, process.env.WORKER_TOKEN) && !authorized(header, process.env.CRON_SECRET)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
   const db = createAdminClient();
   if (!db) return Response.json({ error: 'Worker database is not configured' }, { status: 503 });
   try {
@@ -24,3 +25,6 @@ export async function POST(request) {
     return Response.json({ error: 'Worker invocation failed; check server logs' }, { status: 500 });
   }
 }
+
+// Vercel cron keeps the queue moving even when the desktop/pinger is closed.
+export const GET = POST;

@@ -19,6 +19,9 @@
   #srcs { display:flex; flex-wrap:wrap; gap:5px; }
   #srcs button { background:#121214; border:1px solid var(--line); color:#dcdce0; padding:4px 10px; border-radius:.55rem; font:inherit; font-size:12px; cursor:pointer; transition:border-color .15s, background .15s; }
   #srcs button:hover { border-color:var(--amber); background:#17171a; }
+  #link-row { display:flex; gap:5px; }
+  #link-row[hidden] { display:none; }
+  #link-url { flex:1; min-width:0; }
   #att { display:flex; flex-wrap:wrap; gap:5px; max-height:76px; overflow:auto; flex-shrink:0; }
   #att:empty { display:none; }
   #error { color:#f29b91; font-size:12px; max-height:44px; overflow:auto; }
@@ -46,6 +49,11 @@
       <button data-k="field">🪟 This field</button>
       <button data-k="link">🔗 Link</button>
     </div>
+    <div id="link-row" hidden>
+      <input id="link-url" class="input" type="url" placeholder="https://…" aria-label="Link to attach" />
+      <button id="link-add" class="btn">Add link</button>
+      <button id="link-cancel" class="ghost" aria-label="Cancel adding link">✕</button>
+    </div>
     <div id="att"></div>
     <div id="error" role="alert"></div>
   </div>
@@ -64,6 +72,7 @@
     $('send').textContent = sending ? 'Sending…' : busy ? 'Adding files…' : 'Send to crew';
     $('cancel').disabled = $('close').disabled = sending;
     $('title').disabled = $('ctx').disabled = sending;
+    $('link-url').disabled = $('link-add').disabled = $('link-cancel').disabled = sending;
     document.querySelectorAll('#srcs button').forEach(button => { button.disabled = sending; });
   }
   require('./file-drop').installFileDrop(document, paths => {
@@ -87,6 +96,8 @@
     attachments = [];
     busy = sending = false;
     $('error').textContent = '';
+    $('link-row').hidden = true;
+    $('link-url').value = '';
     initialTitle = p.title || '';
     $('title').value = p.title || '';
     $('ctx').value = p.context || '';
@@ -113,12 +124,40 @@
   ipcRenderer.on('compose-busy', (_, value) => { busy = value; syncButtons(); });
   ipcRenderer.on('compose-error', (_, message) => { sending = false; showError(message); syncButtons(); });
 
+  function addLink() {
+    if (sending) return false;
+    let url;
+    try {
+      url = new URL($('link-url').value.trim());
+      if (!['https:', 'http:'].includes(url.protocol)) throw new Error();
+    } catch {
+      showError('Enter a complete http:// or https:// link.');
+      $('link-url').focus();
+      return false;
+    }
+    if (attachments.length >= 20) { showError('A task can contain at most 20 attachments.'); return false; }
+    if (!attachments.some(a => a.kind === 'link' && a.url === url.href)) {
+      attachments.push({ id: ++seq, kind: 'link', name: url.href, url: url.href });
+      renderAtt();
+    }
+    $('link-row').hidden = true;
+    $('link-url').value = '';
+    $('error').textContent = '';
+    return true;
+  }
+  $('link-add').onclick = addLink;
+  $('link-cancel').onclick = () => { $('link-row').hidden = true; $('link-url').value = ''; };
+  $('link-url').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); e.stopPropagation(); addLink(); }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); $('link-cancel').onclick(); }
+  });
+
   $('srcs').addEventListener('click', e => {
     const k = e.target.closest('button') && e.target.closest('button').dataset.k;
     if (!k) return;
     if (k === 'link') {
-      const url = prompt('Link to include:');
-      if (url && url.trim()) { attachments.push({ id: ++seq, kind: 'link', name: url.trim(), url: url.trim() }); renderAtt(); }
+      $('link-row').hidden = false;
+      $('link-url').focus();
       return;
     }
     ipcRenderer.send('compose-add', k);
@@ -128,6 +167,7 @@
     if (busy || sending) return;
     const title = $('title').value.trim();
     if (!title) return $('title').focus();
+    if (!$('link-row').hidden && $('link-url').value.trim() && !addLink()) return;
     sending = true; $('error').textContent = ''; syncButtons();
     ipcRenderer.send('compose-send', { title, context: $('ctx').value.trim(), attachments: attachments.map(({ thumb, id, localPath, ...a }) => a) });
   }

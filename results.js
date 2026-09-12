@@ -29,26 +29,30 @@ function taskFolder(cfg, d) {
   return path.join(cfg.resultsDir, `${day} ${title}`);
 }
 
-async function save(cfg, d, log) {
+function destination(cfg, d) {
   const dir = taskFolder(cfg, d);
-  fs.mkdirSync(dir, { recursive: true });
   const safe = d.name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_');
-  let file;
+  if (d.kind === 'file' && d.url) return path.join(dir, safe);
+  if (d.kind === 'pr' && d.url) return path.join(dir, safe + (process.platform === 'darwin' ? '.webloc' : '.url'));
+  return path.join(dir, safe + '.md');
+}
+
+async function save(cfg, d, log) {
+  const file = destination(cfg, d);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
   if (d.kind === 'file' && d.url) {
-    file = path.join(dir, safe);
     if (!fs.existsSync(file)) {
       const r = await fetch(d.url);
       if (!r.ok) throw new Error(`download ${r.status} ${d.url}`);
       fs.writeFileSync(file, Buffer.from(await r.arrayBuffer()));
     }
   } else if (d.kind === 'pr' && d.url && process.platform === 'darwin') {
-    file = path.join(dir, safe + '.webloc');                    // Finder link, double-click opens the PR
+    // Finder link, double-click opens the PR.
     fs.writeFileSync(file, ['<?xml version="1.0" encoding="UTF-8"?>', '<plist version="1.0"><dict><key>URL</key><string>' + d.url + '</string></dict></plist>', ''].join(os.EOL));
   } else if (d.kind === 'pr' && d.url) {
-    file = path.join(dir, safe + '.url');                       // Windows internet shortcut, double-click opens the PR
+    // Windows internet shortcut, double-click opens the PR.
     fs.writeFileSync(file, `[InternetShortcut]\r\nURL=${d.url}\r\n`);
   } else {
-    file = path.join(dir, safe + '.md');
     fs.writeFileSync(file, (d.body || d.url || '') + os.EOL);
   }
   log('RESULT SAVED', d.kind, '->', file);
@@ -92,8 +96,11 @@ function start({ log, onResult, configFile }) {
       const byTask = new Map();
       let dirty = false;
       for (const d of rows) {
-        if (d.id in seen) continue;
         try {
+          // A deliverable may be renamed after it was downloaded. Keep the old
+          // local file, but sync the current name and repair deleted local copies.
+          const expected = destination(cfg, d);
+          if (seen[d.id] === expected && fs.existsSync(expected)) continue;
           const file = await save(cfg, d, log);
           seen[d.id] = file; dirty = true;
           const g = byTask.get(d.task_id) || { title: d.tasks && d.tasks.title, dir: path.dirname(file), names: [] };
