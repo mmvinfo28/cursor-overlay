@@ -452,9 +452,15 @@ function startUpdater() {
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.on('update-downloaded', info => {
-    const p = screen.getCursorScreenPoint();
-    win.webContents.send('toast', { text: `Crewboard ${info.version} ready — restart from the tray to update`, x: p.x, y: p.y });
+    toastAtCursor({ text: `Crewboard ${info.version} downloaded — restarting in 15 s`, ttl: 8000 });
     if (tray) tray.setToolTip(`Crewboard — update ${info.version} ready`);
+    const tryInstall = () => {
+      if (composing || selecting) return setTimeout(tryInstall, 15000);   // never yank the app mid-task
+      log('update: installing', info.version);
+      app.quitting = true;
+      autoUpdater.quitAndInstall(true, true);
+    };
+    setTimeout(tryInstall, 15000);
   });
   const check = () => autoUpdater.checkForUpdates().catch(e => log('update check failed', e.message));
   setTimeout(check, 10000);

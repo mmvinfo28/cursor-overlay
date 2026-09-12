@@ -59,6 +59,9 @@
   .pill.done { background:rgba(90,200,120,.16); color:#6ee08a; }
   .pill.failed { background:rgba(224,110,110,.16); color:#e06e6e; }
   .pill.needs-human { background:rgba(120,160,255,.16); color:#8fb0ff; }
+  .card .del { background:none; border:0; color:var(--dim); font-size:13px; cursor:pointer; padding:0 4px; border-radius:6px; opacity:0; }
+  .card:hover .del { opacity:1; }
+  .card .del:hover { color:#e06e6e; background:var(--line); }
   .meta { color:var(--dim); font-size:11px; margin-top:3px; }
   .ctx { color:#b8b8bc; font-size:12px; margin-top:6px; white-space:pre-wrap; word-break:break-word; max-height:54px; overflow:hidden; }
   .sum { margin-top:8px; padding:8px 10px; background:#111; border:1px solid #262628; border-radius:8px; font-size:12px; white-space:pre-wrap; word-break:break-word; }
@@ -197,13 +200,18 @@
         const question = t.status === 'needs-human' ? (t.events || []).filter(e => e.kind === 'needs-human').pop() : null;
         const worker = t.worker ? `${t.worker.name}` : (t.status === 'open' ? 'waiting for a worker' : '');
         card.innerHTML = `
-          <div class="row"><div class="title" title="${esc(t.title)}">${esc(t.title)}</div><span class="pill ${esc(t.status)}">${esc(t.status)}</span></div>
+          <div class="row"><div class="title" title="${esc(t.title)}">${esc(t.title)}</div><span class="pill ${esc(t.status)}">${esc(t.status)}</span><button class="del" title="Remove task">✕</button></div>
           <div class="meta">${esc([worker, t.source_app, ago(t.created_at)].filter(Boolean).join(' · '))}</div>
           ${t.context && t.context !== t.title ? `<div class="ctx">${esc(t.context)}</div>` : ''}
           ${(t.attachments || []).length ? `<div class="files">${t.attachments.map(a => `<a class="chip" data-url="${esc(a.url)}" title="${esc(a.url)}">${a.kind === 'link' ? '🔗' : a.kind === 'folder' ? '🗂' : (a.mime || '').startsWith('image/') ? '🖼' : '📎'} <span>${esc(a.name)}</span></a>`).join('')}</div>` : ''}
           ${summary ? `<div class="sum">${esc(summary.body)}</div>` : ''}
           ${files.length ? `<div class="files">${files.map(d => `<a class="chip" data-id="${d.id}" data-url="${esc(d.url || '')}" title="${esc(d.url || '')}">${d.kind === 'pr' ? '🔀' : '📄'} <span>${esc(d.name)}</span></a>`).join('')}${files.some(d => localFiles[d.id]) ? `<a class="chip folder" data-folder="${esc(localFiles[files.find(d => localFiles[d.id]).id])}">📁 folder</a>` : ''}</div>` : ''}
           ${question ? `<div class="ask"><div class="q">${esc(question.payload && question.payload.question || 'The worker needs your input.')}</div><div class="row"><input placeholder="Answer…" /><button>Send</button></div></div>` : ''}`;
+        card.querySelector('.del').onclick = async () => {
+          card.style.opacity = .4;
+          await fetch(`${cfg.supabaseUrl}/rest/v1/tasks?id=eq.${t.id}`, { method: 'DELETE', headers: h() });
+          load();
+        };
         card.querySelectorAll('.chip[data-url]:not([data-id])').forEach(el => el.onclick = () => shell.openExternal(el.dataset.url));
         card.querySelectorAll('.chip[data-id]').forEach(el => el.onclick = () => {
           const local = localFiles[el.dataset.id];

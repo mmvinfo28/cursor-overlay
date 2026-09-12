@@ -49,6 +49,11 @@ export default function Board({ initialTasks, initialWorkers, user }: { initialT
     reload();
   }
 
+  async function remove(taskId: string) {
+    await supabase.from("tasks").delete().eq("id", taskId);
+    reload();
+  }
+
   async function answer(taskId: string, text: string) {
     if (!text.trim()) return;
     await supabase.from("events").insert({ task_id: taskId, kind: "human-answer", payload: { text, by: user } });
@@ -112,7 +117,7 @@ export default function Board({ initialTasks, initialWorkers, user }: { initialT
             <section key={c.key} className="rounded-xl border border-line bg-[#111113] min-h-40">
               <h2 className="px-3 py-2 text-xs uppercase tracking-wide text-dim border-b border-line flex justify-between">{c.label}<span>{rows.length}</span></h2>
               <div className="p-2 flex flex-col gap-2">
-                {rows.map((t) => <Card key={t.id} t={t} onAnswer={answer} />)}
+                {rows.map((t) => <Card key={t.id} t={t} onAnswer={answer} onRemove={remove} />)}
                 {rows.length === 0 && <p className="text-xs text-dim text-center py-6">—</p>}
               </div>
             </section>
@@ -140,17 +145,18 @@ export default function Board({ initialTasks, initialWorkers, user }: { initialT
   );
 }
 
-function Card({ t, onAnswer }: { t: Task; onAnswer: (id: string, text: string) => void }) {
+function Card({ t, onAnswer, onRemove }: { t: Task; onAnswer: (id: string, text: string) => void; onRemove: (id: string) => void }) {
   const [text, setText] = useState("");
   const dl = (t.deliverables || []).slice().sort((a, b) => (a.created_at < b.created_at ? -1 : 1));
   const summary = dl.find((d) => d.kind === "text");
   const files = dl.filter((d) => d.kind !== "text");
   const question = t.status === "needs-human" ? (t.events || []).filter((e) => e.kind === "needs-human").pop() : null;
   return (
-    <article className="rounded-lg border border-line bg-card p-3">
+    <article className="group rounded-lg border border-line bg-card p-3">
       <div className="flex items-start gap-2">
         <h3 className="font-semibold text-sm flex-1 min-w-0 break-words">{t.title}</h3>
         <span className={`pill ${t.status}`}>{t.status}</span>
+        <button className="text-dim hover:text-bad opacity-0 group-hover:opacity-100 text-xs leading-none" title="Remove task" onClick={() => onRemove(t.id)}>✕</button>
       </div>
       <p className="text-[11px] text-dim mt-1">{[t.worker?.name || (t.status === "open" ? "waiting for a worker" : ""), t.source_app, ago(t.created_at)].filter(Boolean).join(" · ")}</p>
       {t.context && t.context !== t.title && <p className="text-xs text-[#b8b8bc] mt-2 whitespace-pre-wrap break-words line-clamp-3">{t.context}</p>}
