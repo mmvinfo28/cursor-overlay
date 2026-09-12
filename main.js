@@ -142,7 +142,10 @@ function onFieldLine(line) {
   try { f = JSON.parse(line); } catch { return log('uia parse fail', line.slice(0, 120)); }
   const { pass, signals } = localFilter(f.text || '');
   log('field', f.app, f.type, `${f.len}ch`, f.src, pass ? 'PASS' : 'silent', signals.join(','));
-  if (showPanel && !win.isDestroyed()) win.webContents.send('field', { ...f, pass, signals });
+  if (!win.isDestroyed()) {
+    win.webContents.send('signal', { pass });
+    if (showPanel) win.webContents.send('field', { ...f, pass, signals });
+  }
 }
 
 function helperCmd(cmd) {
