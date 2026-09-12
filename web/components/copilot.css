@@ -1,0 +1,11 @@
+/* Sidebar theming. These are CopilotKit's own custom properties; overriding them on a
+   wrapper is the supported way to restyle without replacing components. */
+.crew-copilot {
+  --copilot-kit-primary-color: #E9A23B;          /* send button, accents */
+  --copilot-kit-contrast-color: #18181b;         /* text on amber */
+  --copilot-kit-background-color: #0b0b0d;       /* panel background */
+  --copilot-kit-secondary-color: #161619;        /* message bubbles */
+  --copilot-kit-secondary-contrast-color: #ededed; /* body text */
+  --copilot-kit-separator-color: #27272a;        /* borders */
+  --copilot-kit-muted-color: #71717a;            /* placeholder, disabled */
+}

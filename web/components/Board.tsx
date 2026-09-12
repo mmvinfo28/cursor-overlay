@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { useCopilotReadable, useCopilotAction } from "@copilotkit/react-core";
+import { useCopilotReadable, useCopilotAction, useCopilotChatSuggestions, useCopilotAdditionalInstructions } from "@copilotkit/react-core";
 import { createClient } from "@/lib/supabase/client";
 import { ago, TASK_SELECT, type Task, type Worker } from "@/lib/types";
 
@@ -62,6 +62,24 @@ export default function Board({ initialTasks, initialWorkers, user }: { initialT
 
   const cost = tasks.reduce((s, t) => s + (t.events || []).reduce((a, e) => a + Number(e.cost_usd || 0), 0), 0);
   const doneToday = tasks.filter((t) => t.status === "done" && Date.now() - new Date(t.updated_at).getTime() < 86400e3).length;
+
+  // Persona: a crew chief reporting status, not a generic assistant.
+  useCopilotAdditionalInstructions({
+    instructions:
+      "You are the Crewboard copilot. You report on a live board of tasks worked by AI agents. " +
+      "Be terse - one or two sentences unless asked for detail. Refer to tasks by title, never by id. " +
+      "When a task needs a human answer, offer to send one. Never invent tasks, workers or costs: " +
+      "if it is not in the board state you were given, say you do not see it.",
+  });
+
+  // Clickable starter prompts, so the board can be driven without typing.
+  useCopilotChatSuggestions({
+    instructions:
+      "Suggest short questions about the current board: what is blocked, what shipped, " +
+      "what the crew has spent, or which worker is busiest. Base them on the actual tasks present.",
+    minSuggestions: 2,
+    maxSuggestions: 3,
+  });
 
   // --- CopilotKit: the sidebar sees exactly what the board sees ---
   useCopilotReadable({
